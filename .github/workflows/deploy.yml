@@ -40,7 +40,7 @@ jobs:
         run: pnpm --filter @workspace/portfolio build
         env:
           PORT: 4173
-          BASE_PATH: ./
+          BASE_PATH: /Portfolio-Fusion/
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
