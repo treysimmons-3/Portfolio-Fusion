@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Trey Simmons — Portfolio"
+description = "A personal portfolio website for Trey Simmons, a Senior Creative Director and Vibe Coder with 30+ years of experience. Merges dynamic motion and bold design from two existing concepts into one cohesive site."
+version = "1.0.0"
+id = "artifacts/portfolio"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21113
+
+[services.development]
+run = "pnpm --filter @workspace/portfolio run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/portfolio", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/portfolio/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21113"
+BASE_PATH = "/"
