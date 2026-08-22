@@ -429,11 +429,19 @@ function ContactForm() {
     setErrMsg('');
 
     try {
-      const res = await fetch(`${import.meta.env.BASE_URL}api/contact`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, budget, message }),
-      });
+   const res = await fetch('https://formspree.io/f/mppanezr', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  },
+  body: JSON.stringify({
+    name,
+    email,
+    budget,
+    message,
+  }),
+});
 
       if (res.ok) {
         setStatus('sent');
