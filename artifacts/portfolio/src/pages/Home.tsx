@@ -6,6 +6,7 @@ import {
   mdiFilmstrip,
   mdiPrinter,
   mdiDisc,
+  mdiGamepadVariant,
   mdiRocketLaunch,
   mdiTrophy,
 } from '@mdi/js';
@@ -410,6 +411,612 @@ function StatCol({ value, label, delay, active }: {
   );
 }
 
+// ── 30-second portrait Easter egg ────────────────────────────────────────────
+type GameStage = 'closed' | 'intro' | 'playing' | 'over';
+
+function AsteroidsGame({
+  onExit,
+  onGameOver,
+}: {
+  onExit: () => void;
+  onGameOver: (score: number) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const controlsRef = useRef({ left: false, right: false, thrust: false, fire: false });
+  const [score, setScore] = useState(0);
+  const [seconds, setSeconds] = useState(30);
+  const [lives, setLives] = useState(3);
+  const [showHint, setShowHint] = useState(true);
+  const onExitRef = useRef(onExit);
+  const onGameOverRef = useRef(onGameOver);
+
+  useEffect(() => { onExitRef.current = onExit; }, [onExit]);
+  useEffect(() => { onGameOverRef.current = onGameOver; }, [onGameOver]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    type AsteroidSize = 'large' | 'medium' | 'small';
+    type Asteroid = {
+      x: number; y: number; vx: number; vy: number; r: number; spin: number; angle: number;
+      size: AsteroidSize; hits: number; maxHits: number; points: number[]; hue: number; sprite: number;
+      flashUntil: number; destroyed: boolean; destroyedAt: number;
+    };
+    type AlphaMask = { size: number; alpha: Uint8ClampedArray };
+    type Bullet = { x: number; y: number; vx: number; vy: number; life: number };
+    type Fragment = { x: number; y: number; vx: number; vy: number; life: number; size: number; angle: number };
+
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+    let raf = 0;
+    let last = performance.now();
+    let lastFire = 0;
+    let running = true;
+    let scoreValue = 0;
+    let displayedSecond = 30;
+    let spawnTimer = 2.4;
+    let ufoTimer = 8;
+    let ufo: { x: number; y: number; vx: number; phase: number; soundPlayed: boolean } | null = null;
+    let livesValue = 3;
+    let invulnerableUntil = 0;
+    let shipDestroyedUntil = 0;
+    let gameOverTimer: number | undefined;
+    let audioContext: AudioContext | null = null;
+    const startedAt = performance.now();
+    const ship = { x: width / 2, y: height / 2, vx: 0, vy: 0, angle: -Math.PI / 2 };
+    const bullets: Bullet[] = [];
+    const fragments: Fragment[] = [];
+    const asteroidImageSources: Record<AsteroidSize, string[]> = {
+      large: ['asteroid-mix-large.svg', 'asteroid-yellow-large.svg', 'asteroid-blue-large.svg', 'asteroid-red-large.svg'],
+      medium: ['asteroid-mix-medium.svg', 'asteroid-yellow-medium.svg', 'asteroid-blue-medium.svg', 'asteroid-red-medium.svg'],
+      small: ['asteroid-mix-small.svg', 'asteroid-yellow-small.svg', 'asteroid-blue-small.svg', 'asteroid-red-small.svg'],
+    };
+    const asteroidMasks: Record<AsteroidSize, Array<AlphaMask | null>> = {
+      large: [null, null, null, null],
+      medium: [null, null, null, null],
+      small: [null, null, null, null],
+    };
+    const makeAlphaMask = (image: HTMLImageElement): AlphaMask => {
+      const maskSize = 96;
+      const maskCanvas = document.createElement('canvas');
+      maskCanvas.width = maskSize;
+      maskCanvas.height = maskSize;
+      const maskContext = maskCanvas.getContext('2d');
+      if (!maskContext) return { size: maskSize, alpha: new Uint8ClampedArray(maskSize * maskSize * 4) };
+      maskContext.drawImage(image, 0, 0, maskSize, maskSize);
+      return { size: maskSize, alpha: maskContext.getImageData(0, 0, maskSize, maskSize).data };
+    };
+    const asteroidImages = {} as Record<AsteroidSize, HTMLImageElement[]>;
+    (['large', 'medium', 'small'] as AsteroidSize[]).forEach((size) => {
+      asteroidImages[size] = asteroidImageSources[size].map((source, color) => {
+        const image = new Image();
+        image.onload = () => { asteroidMasks[size][color] = makeAlphaMask(image); };
+        image.src = `${BASE}${source}`;
+        return image;
+      });
+    });
+    const ufoImage = new Image();
+    let ufoImageReady = false;
+    ufoImage.onload = () => { ufoImageReady = true; };
+    ufoImage.src = `${BASE}arcade-ufo.png`;
+    const stars = Array.from({ length: 72 }, (_, i) => ({
+      x: ((i * 127) % 1000) / 1000,
+      y: ((i * 283) % 1000) / 1000,
+      r: i % 7 === 0 ? 1.5 : 0.8,
+    }));
+    const wakeAudio = () => {
+      if (!audioContext) audioContext = new AudioContext();
+      if (audioContext.state === 'suspended') void audioContext.resume();
+    };
+    const playSound = (frequency: number, duration: number, type: OscillatorType = 'square', volume = .035) => {
+      wakeAudio();
+      if (!audioContext) return;
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+      gain.gain.setValueAtTime(volume, audioContext.currentTime);
+      gain.gain.exponentialRampToValueAtTime(.001, audioContext.currentTime + duration);
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + duration);
+    };
+    const playUfoArrivalSound = () => {
+      wakeAudio();
+      if (!audioContext) return;
+      const start = audioContext.currentTime;
+      [0, .19, .38].forEach((offset, index) => {
+        const oscillator = audioContext!.createOscillator();
+        const gain = audioContext!.createGain();
+        const noteStart = start + offset;
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(index === 1 ? 135 : 180, noteStart);
+        oscillator.frequency.linearRampToValueAtTime(index === 1 ? 105 : 145, noteStart + .14);
+        gain.gain.setValueAtTime(.001, noteStart);
+        gain.gain.linearRampToValueAtTime(.05, noteStart + .035);
+        gain.gain.exponentialRampToValueAtTime(.001, noteStart + .17);
+        oscillator.connect(gain);
+        gain.connect(audioContext!.destination);
+        oscillator.start(noteStart);
+        oscillator.stop(noteStart + .19);
+      });
+    };
+    const asteroid = (size: AsteroidSize = 'large', origin?: { x: number; y: number }, velocity?: { x: number; y: number }): Asteroid => {
+      const specs = {
+        large: { r: 62, hits: 3, speed: 28, points: 100 },
+        medium: { r: 38, hits: 2, speed: 48, points: 200 },
+        small: { r: 17, hits: 1, speed: 74, points: 300 },
+      }[size];
+      const edge = Math.floor(Math.random() * 4);
+      const r = specs.r * (.88 + Math.random() * .2);
+      const speed = specs.speed * (.8 + Math.random() * .4);
+      const x = origin?.x ?? (edge === 0 ? -r : edge === 1 ? width + r : Math.random() * width);
+      const y = origin?.y ?? (edge === 2 ? -r : edge === 3 ? height + r : Math.random() * height);
+      const angle = Math.atan2(height / 2 - y, width / 2 - x) + (Math.random() - .5) * 1.1;
+      const direction = velocity ?? { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed };
+      const points = Array.from({ length: 8 + Math.floor(Math.random() * 3) }, (_, i) =>
+        r * (.74 + ((i * 31 + Math.floor(r)) % 23) / 65)
+      );
+      return {
+        x, y, vx: direction.x, vy: direction.y, r, spin: (Math.random() - .5) * 1.2,
+        angle: Math.random() * Math.PI * 2, size, hits: specs.hits, maxHits: specs.hits,
+        points, hue: Math.floor(Math.random() * 4), sprite: Math.floor(Math.random() * 4), flashUntil: 0,
+        destroyed: false, destroyedAt: 0,
+      };
+    };
+    const asteroids = [
+      asteroid('large'), asteroid('large'), asteroid('medium'), asteroid('medium'), asteroid('small'),
+    ];
+
+    const resize = () => {
+      width = window.innerWidth;
+      height = window.innerHeight;
+      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(width * ratio);
+      canvas.height = Math.floor(height * ratio);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ship.x = Math.min(ship.x, width - 24);
+      ship.y = Math.min(ship.y, height - 24);
+    };
+
+    const setControl = (key: string, value: boolean) => {
+      if (key === 'ArrowLeft' || key.toLowerCase() === 'a') controlsRef.current.left = value;
+      if (key === 'ArrowRight' || key.toLowerCase() === 'd') controlsRef.current.right = value;
+      if (key === 'ArrowUp' || key.toLowerCase() === 'w') controlsRef.current.thrust = value;
+      if (key === ' ' || key === 'Enter') controlsRef.current.fire = value;
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      wakeAudio();
+      if (event.key === 'Escape') { onExitRef.current(); return; }
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', ' ', 'Enter', 'a', 'A', 'd', 'D', 'w', 'W'].includes(event.key)) {
+        event.preventDefault();
+        setControl(event.key, true);
+      }
+    };
+    const onKeyUp = (event: KeyboardEvent) => setControl(event.key, false);
+
+    resize();
+    window.addEventListener('resize', resize);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('pointerdown', wakeAudio);
+
+    const wrap = (value: number, max: number) => (value + max) % max;
+    const drawAsteroid = (item: Asteroid) => {
+      const now = performance.now();
+      const dissolveProgress = item.destroyed ? Math.min(1, (now - item.destroyedAt) / 380) : 0;
+      ctx.save();
+      ctx.translate(item.x, item.y);
+      ctx.rotate(item.angle);
+      if (dissolveProgress > 0) {
+        ctx.scale(1 + dissolveProgress * .28, 1 + dissolveProgress * .28);
+        ctx.globalAlpha = 1 - dissolveProgress;
+        ctx.filter = `blur(${dissolveProgress * 4}px)`;
+      }
+      const sides = item.points.length;
+      const image = asteroidImages[item.size][item.hue];
+      const useSvg = image.complete && image.naturalWidth > 0;
+      const path = () => {
+        ctx.beginPath();
+        item.points.forEach((radius, point) => {
+          const a = (point / sides) * Math.PI * 2;
+          const px = Math.cos(a) * radius;
+          const py = Math.sin(a) * radius;
+          if (point === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        });
+        ctx.closePath();
+      };
+      if (useSvg) {
+        ctx.globalAlpha *= .94;
+        ctx.drawImage(image, -item.r, -item.r, item.r * 2, item.r * 2);
+      } else {
+        const colors = ['#4c531c', '#4a2025', '#111b45', '#252b2d'];
+        path();
+        ctx.fillStyle = colors[item.hue];
+        ctx.fill();
+        ctx.fillStyle = item.hue % 2 ? 'rgba(220,242,74,.3)' : 'rgba(246,245,235,.18)';
+        const dotGap = item.size === 'large' ? 8 : item.size === 'medium' ? 6 : 4;
+        for (let x = -item.r; x < item.r; x += dotGap) {
+          for (let y = -item.r; y < item.r; y += dotGap) {
+            ctx.beginPath();
+            ctx.arc(x + (y / dotGap % 2) * 2, y, item.size === 'small' ? 1 : 1.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+      if (item.hits < item.maxHits) {
+        ctx.strokeStyle = 'rgba(246,245,235,.72)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(-item.r * .35, -item.r * .6);
+        ctx.lineTo(item.r * .05, 0);
+        ctx.lineTo(-item.r * .1, item.r * .5);
+        ctx.moveTo(item.r * .05, 0);
+        ctx.lineTo(item.r * .55, item.r * .3);
+        ctx.stroke();
+      }
+      ctx.restore();
+    };
+    const pointHitsAsteroid = (item: Asteroid, x: number, y: number) => {
+      const dx = x - item.x;
+      const dy = y - item.y;
+      const cos = Math.cos(item.angle);
+      const sin = Math.sin(item.angle);
+      const localX = dx * cos + dy * sin;
+      const localY = -dx * sin + dy * cos;
+      if (Math.abs(localX) > item.r || Math.abs(localY) > item.r) return false;
+      const mask = asteroidMasks[item.size][item.hue];
+      if (!mask) return Math.hypot(dx, dy) < item.r + 5;
+      const maskX = Math.max(0, Math.min(mask.size - 1, Math.floor((localX / (item.r * 2) + .5) * mask.size)));
+      const maskY = Math.max(0, Math.min(mask.size - 1, Math.floor((localY / (item.r * 2) + .5) * mask.size)));
+      return mask.alpha[(maskY * mask.size + maskX) * 4 + 3] > 32;
+    };
+    const burst = (item: Asteroid) => {
+      for (let i = 0; i < (item.size === 'large' ? 12 : 7); i += 1) {
+        const angle = (i / 7) * Math.PI * 2 + Math.random() * .4;
+        fragments.push({
+          x: item.x, y: item.y, vx: Math.cos(angle) * (35 + Math.random() * 65),
+          vy: Math.sin(angle) * (35 + Math.random() * 65), life: .45 + Math.random() * .35,
+          size: 2 + Math.random() * 4, angle,
+        });
+      }
+    };
+    const drawUfo = (item: { x: number; y: number; phase: number }) => {
+      ctx.save();
+      ctx.translate(item.x, item.y);
+      ctx.shadowColor = '#dcf24a';
+      ctx.shadowBlur = 20;
+      if (ufoImageReady) {
+        ctx.drawImage(ufoImage, -74, -43, 148, 86);
+        ctx.restore();
+        return;
+      }
+      ctx.strokeStyle = '#dcf24a';
+      ctx.fillStyle = '#111b45';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-24, 2);
+      ctx.quadraticCurveTo(-13, -12, 0, -12);
+      ctx.quadraticCurveTo(13, -12, 24, 2);
+      ctx.lineTo(15, 10);
+      ctx.lineTo(-15, 10);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#f6f5eb';
+      ctx.beginPath();
+      ctx.ellipse(0, -12, 8, 5, 0, Math.PI, 0);
+      ctx.fill();
+      ctx.fillStyle = item.phase % 2 ? '#dcf24a' : '#f6f5eb';
+      [-12, 0, 12].forEach((x) => {
+        ctx.beginPath();
+        ctx.arc(x, 5, 2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.restore();
+    };
+    const render = (now: number) => {
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = '#080a12';
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = 'rgba(246,245,235,.45)';
+      stars.forEach((star) => {
+        ctx.beginPath();
+        ctx.arc(star.x * width, star.y * height, star.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      asteroids.forEach(drawAsteroid);
+      if (ufo) drawUfo(ufo);
+      fragments.forEach((fragment) => {
+        ctx.save();
+        ctx.translate(fragment.x, fragment.y);
+        ctx.rotate(fragment.angle);
+        ctx.globalAlpha = Math.max(0, fragment.life * 1.5);
+        ctx.fillStyle = fragment.life > .4 ? '#dcf24a' : '#f6f5eb';
+        ctx.fillRect(-fragment.size, -fragment.size, fragment.size * 2, fragment.size * 2);
+        ctx.restore();
+      });
+      bullets.forEach((bullet) => {
+        ctx.fillStyle = '#dcf24a';
+        ctx.beginPath();
+        ctx.arc(bullet.x, bullet.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.save();
+      ctx.translate(ship.x, ship.y);
+      ctx.rotate(ship.angle + Math.PI / 2);
+      if (now < shipDestroyedUntil && Math.floor(now / 90) % 2 === 0) {
+        ctx.restore();
+        return;
+      }
+      if (controlsRef.current.thrust) {
+        ctx.fillStyle = '#dcf24a';
+        ctx.beginPath();
+        ctx.moveTo(-6, 13); ctx.lineTo(0, 25 + Math.random() * 8); ctx.lineTo(6, 13);
+        ctx.fill();
+      }
+      ctx.strokeStyle = '#f6f5eb';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#dcf24a';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.moveTo(0, -16); ctx.lineTo(12, 14); ctx.lineTo(0, 8); ctx.lineTo(-12, 14); ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    const tick = (now: number) => {
+      if (!running) return;
+      const dt = Math.min((now - last) / 1000, .05);
+      last = now;
+      const remaining = Math.max(0, 30 - (now - startedAt) / 1000);
+      const rounded = Math.ceil(remaining);
+      if (rounded !== displayedSecond) {
+        displayedSecond = rounded;
+        setSeconds(rounded);
+      }
+      if (remaining <= 0) {
+        running = false;
+        onGameOverRef.current(scoreValue);
+        return;
+      }
+      spawnTimer -= dt;
+      const chaos = remaining <= 10;
+      if (spawnTimer <= 0 && asteroids.length < (chaos ? 13 : 8)) {
+        asteroids.push(asteroid(chaos && Math.random() > .45 ? 'medium' : 'small'));
+        spawnTimer = chaos ? .85 : 2.2;
+      }
+      ufoTimer -= dt;
+      if (!ufo && remaining < 25 && ufoTimer <= 0) {
+        ufo = { x: -76, y: height * (.25 + Math.random() * .45), vx: 110, phase: 0, soundPlayed: false };
+      }
+      if (ufo) {
+        ufo.x += ufo.vx * dt;
+        ufo.y += Math.sin(now / 280) * 18 * dt;
+        ufo.phase += dt * 8;
+        if (!ufo.soundPlayed && ufo.x > 0) {
+          ufo.soundPlayed = true;
+          playUfoArrivalSound();
+        }
+        if (ufo.x > width + 76) {
+          ufo = null;
+          ufoTimer = 99;
+        }
+      }
+
+      if (controlsRef.current.left) ship.angle -= 3.8 * dt;
+      if (controlsRef.current.right) ship.angle += 3.8 * dt;
+      if (controlsRef.current.thrust) {
+        ship.vx += Math.cos(ship.angle) * 210 * dt;
+        ship.vy += Math.sin(ship.angle) * 210 * dt;
+      }
+      ship.vx *= .992;
+      ship.vy *= .992;
+      ship.x = wrap(ship.x + ship.vx * dt, width);
+      ship.y = wrap(ship.y + ship.vy * dt, height);
+      if (controlsRef.current.fire && now - lastFire > 210) {
+        lastFire = now;
+        bullets.push({ x: ship.x, y: ship.y, vx: Math.cos(ship.angle) * 460, vy: Math.sin(ship.angle) * 460, life: 1.05 });
+        playSound(420, .045, 'square', .018);
+      }
+
+      bullets.forEach((bullet) => {
+        bullet.x = wrap(bullet.x + bullet.vx * dt, width);
+        bullet.y = wrap(bullet.y + bullet.vy * dt, height);
+        bullet.life -= dt;
+      });
+      fragments.forEach((fragment) => {
+        fragment.x = wrap(fragment.x + fragment.vx * dt, width);
+        fragment.y = wrap(fragment.y + fragment.vy * dt, height);
+        fragment.vx *= .96;
+        fragment.vy *= .96;
+        fragment.life -= dt;
+      });
+      for (let i = fragments.length - 1; i >= 0; i -= 1) {
+        if (fragments[i].life <= 0) fragments.splice(i, 1);
+      }
+      for (let i = bullets.length - 1; i >= 0; i -= 1) {
+        if (bullets[i].life <= 0) bullets.splice(i, 1);
+      }
+      if (ufo) {
+        for (let bulletIndex = bullets.length - 1; bulletIndex >= 0; bulletIndex -= 1) {
+          const bullet = bullets[bulletIndex];
+          if (Math.hypot(ufo.x - bullet.x, ufo.y - bullet.y) < 58) {
+            for (let fragment = 0; fragment < 14; fragment += 1) {
+              const angle = (fragment / 14) * Math.PI * 2;
+              fragments.push({
+                x: ufo.x, y: ufo.y, vx: Math.cos(angle) * 90, vy: Math.sin(angle) * 90,
+                life: .7, size: 3, angle,
+              });
+            }
+            bullets.splice(bulletIndex, 1);
+            playSound(880, .12, 'triangle', .045);
+            ufo = null;
+            ufoTimer = 99;
+            scoreValue += 750;
+            setScore(scoreValue);
+            break;
+          }
+        }
+      }
+      asteroids.forEach((item) => {
+        if (!item.destroyed) {
+          item.x = wrap(item.x + item.vx * dt, width);
+          item.y = wrap(item.y + item.vy * dt, height);
+        }
+        item.angle += item.spin * dt;
+      });
+      for (let asteroidIndex = asteroids.length - 1; asteroidIndex >= 0; asteroidIndex -= 1) {
+        if (asteroids[asteroidIndex].destroyed && now - asteroids[asteroidIndex].destroyedAt >= 380) {
+          asteroids.splice(asteroidIndex, 1);
+        }
+      }
+      if (now > invulnerableUntil) {
+        const shipPoints = [
+          [ship.x, ship.y],
+          [ship.x + Math.cos(ship.angle) * 16, ship.y + Math.sin(ship.angle) * 16],
+          [ship.x + Math.cos(ship.angle + 2.35) * 12, ship.y + Math.sin(ship.angle + 2.35) * 12],
+          [ship.x + Math.cos(ship.angle - 2.35) * 12, ship.y + Math.sin(ship.angle - 2.35) * 12],
+        ];
+        const hitAsteroid = asteroids.some((item) => !item.destroyed && shipPoints.some(([x, y]) => pointHitsAsteroid(item, x, y)));
+        const hitUfo = ufo !== null && Math.hypot(ufo.x - ship.x, ufo.y - ship.y) < 58;
+        if (hitAsteroid || hitUfo) {
+          const impactX = ship.x;
+          const impactY = ship.y;
+          for (let fragment = 0; fragment < 18; fragment += 1) {
+            const angle = (fragment / 18) * Math.PI * 2;
+            fragments.push({
+              x: impactX, y: impactY, vx: Math.cos(angle) * (55 + Math.random() * 80),
+              vy: Math.sin(angle) * (55 + Math.random() * 80), life: .5 + Math.random() * .35,
+              size: 2 + Math.random() * 4, angle,
+            });
+          }
+          livesValue -= 1;
+          setLives(livesValue);
+          playSound(105, .24, 'sawtooth', .055);
+          invulnerableUntil = now + 2200;
+          shipDestroyedUntil = now + 480;
+          ship.x = width / 2;
+          ship.y = height / 2;
+          ship.vx = 0;
+          ship.vy = 0;
+          if (livesValue <= 0) {
+            running = false;
+            gameOverTimer = window.setTimeout(() => onGameOverRef.current(scoreValue), 500);
+          }
+        }
+      }
+      for (let asteroidIndex = asteroids.length - 1; asteroidIndex >= 0; asteroidIndex -= 1) {
+        for (let bulletIndex = bullets.length - 1; bulletIndex >= 0; bulletIndex -= 1) {
+          const item = asteroids[asteroidIndex];
+          const bullet = bullets[bulletIndex];
+          if (!item.destroyed && pointHitsAsteroid(item, bullet.x, bullet.y)) {
+            item.hits -= 1;
+            item.flashUntil = now + 120;
+            item.vx *= .9;
+            item.vy *= .9;
+            burst(item);
+            bullets.splice(bulletIndex, 1);
+            playSound(item.hits <= 0 ? 190 : 320, .09, 'triangle', .03);
+            if (item.hits <= 0) {
+              item.destroyed = true;
+              item.destroyedAt = now;
+              scoreValue += item.size === 'large' ? 100 : item.size === 'medium' ? 200 : 300;
+              setScore(scoreValue);
+              if (item.size !== 'small') {
+                const childSize: AsteroidSize = item.size === 'large' ? 'medium' : 'small';
+                const parentSpeed = Math.hypot(item.vx, item.vy);
+                const childBaseSpeed = childSize === 'medium' ? 58 : 88;
+                const childSpeed = Math.max(childBaseSpeed, parentSpeed * (childSize === 'medium' ? 1.12 : 1.16));
+                for (let child = 0; child < 2; child += 1) {
+                  const childAngle = Math.atan2(item.vy, item.vx) + (child ? .8 : -.8);
+                  asteroids.push(asteroid(childSize, { x: item.x, y: item.y }, {
+                    x: Math.cos(childAngle) * childSpeed,
+                    y: Math.sin(childAngle) * childSpeed,
+                  }));
+                }
+              }
+            }
+            break;
+          }
+        }
+      }
+      render(now);
+      if (running) raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    const hintTimer = window.setTimeout(() => setShowHint(false), 5200);
+    return () => {
+      running = false;
+      cancelAnimationFrame(raf);
+      window.clearTimeout(gameOverTimer);
+      window.clearTimeout(hintTimer);
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('pointerdown', wakeAudio);
+      void audioContext?.close();
+    };
+  }, []);
+
+  const press = (control: keyof typeof controlsRef.current, active: boolean) => {
+    controlsRef.current[control] = active;
+  };
+  const controlButton = (label: string, control: keyof typeof controlsRef.current, symbol: string) => (
+    <button
+      type="button"
+      aria-label={label}
+      className="game-control"
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        press(control, true);
+      }}
+      onPointerUp={(event) => {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        press(control, false);
+      }}
+      onPointerLeave={() => press(control, false)}
+      onPointerCancel={() => press(control, false)}
+    >
+      {symbol}
+    </button>
+  );
+
+  return (
+    <div className="game-stage" role="dialog" aria-modal="true" aria-label="Thirty-second asteroid game">
+      <canvas ref={canvasRef} className="game-canvas" />
+      <div className="game-hud">
+        <div className="game-score"><span>Score</span><strong>{score.toString().padStart(4, '0')}</strong></div>
+        <div className={seconds <= 5 ? 'game-timer is-urgent' : 'game-timer'}><span>Time</span><strong>{seconds}s</strong></div>
+        <div className="game-lives"><span>Lives</span><strong>{'●'.repeat(lives)}</strong></div>
+        <button type="button" className="game-close" onClick={onExit} aria-label="Close game">×<span>Exit</span></button>
+      </div>
+      {showHint && <div className="game-instructions label-mono">← / → rotate · ↑ thrust · space fire</div>}
+      <div className="game-controls" aria-label="Touch controls">
+        <div className="flex gap-3">
+          {controlButton('Rotate left', 'left', '↶')}
+          {controlButton('Rotate right', 'right', '↷')}
+        </div>
+        <div className="flex gap-3">
+          {controlButton('Thrust', 'thrust', '↑')}
+          {controlButton('Fire', 'fire', '●')}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Contact form ──────────────────────────────────────────────────────────────
 function ContactForm() {
   const [name,    setName]    = useState('');
@@ -429,10 +1036,18 @@ function ContactForm() {
     setErrMsg('');
 
     try {
-      const res = await fetch(`${import.meta.env.BASE_URL}api/contact`, {
+      const res = await fetch('https://formspree.io/f/mppanezr', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, budget, message }),
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          name,
+          email,
+          budget,
+          message,
+        }),
       });
 
       if (res.ok) {
@@ -556,6 +1171,50 @@ function Lightbox({ index, items, onClose, onNav }: {
 export default function Home() {
   const [lightbox, setLightbox] = React.useState<number | null>(null);
   const [resumeExpanded, setResumeExpanded] = useState(false);
+  const [gameStage, setGameStage] = useState<GameStage>('closed');
+  const [finalScore, setFinalScore] = useState(0);
+  const [portraitFlipped, setPortraitFlipped] = useState(false);
+  const scrollPositionRef = useRef(0);
+  const portraitFlipTimerRef = useRef<number | undefined>(undefined);
+
+  const rememberScrollPosition = () => {
+    scrollPositionRef.current = window.scrollY;
+  };
+  const beginFromIntro = () => setGameStage('playing');
+  const closeGameExperience = () => {
+    setGameStage('closed');
+    requestAnimationFrame(() => window.scrollTo(0, scrollPositionRef.current));
+  };
+  const handleGameOver = (score: number) => {
+    setFinalScore(score);
+    setGameStage('over');
+  };
+  const triggerPortraitGame = () => {
+    setPortraitFlipped(true);
+    window.clearTimeout(portraitFlipTimerRef.current);
+    portraitFlipTimerRef.current = window.setTimeout(() => {
+      rememberScrollPosition();
+      setPortraitFlipped(false);
+      setGameStage('intro');
+    }, 520);
+  };
+
+  useEffect(() => {
+    return () => window.clearTimeout(portraitFlipTimerRef.current);
+  }, []);
+  useEffect(() => {
+    if (gameStage === 'closed') return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeGameExperience();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [gameStage]);
 
   // Stats animation trigger
   const statsRef  = useRef<HTMLDivElement>(null);
@@ -583,9 +1242,25 @@ export default function Home() {
         {/* Mobile nav */}
         <nav className="relative z-10 md:hidden px-6 pt-6 pb-4">
           <div className="flex items-center gap-3">
-            <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full border border-paper/40">
-              <img src={`${BASE}trey-photo.jpg`} alt="Trey Simmons" decoding="async" className="h-full w-full object-cover object-top" />
-            </div>
+            <button
+              type="button"
+              className="portrait-trigger group relative h-20 w-20 shrink-0 overflow-visible rounded-full text-left"
+              data-flipped={portraitFlipped}
+              onClick={triggerPortraitGame}
+              aria-label="Open the hidden thirty-second game"
+            >
+              <span className="portrait-flip-inner">
+                <span className="portrait-flip-face portrait-flip-front">
+                  <img src={`${BASE}trey-photo.jpg`} alt="Trey Simmons" decoding="async" className="h-full w-full object-cover object-top" />
+                </span>
+                <span className="portrait-flip-face portrait-flip-back" aria-hidden="true">
+                  <img src={`${BASE}arcade-coin.png`} alt="" decoding="async" className="portrait-coin-image" />
+                </span>
+              </span>
+              <span className="portrait-badge" aria-hidden="true">
+                <MdiIcon path={mdiGamepadVariant} size={.72} />
+              </span>
+            </button>
             <div className="flex flex-col gap-0.5">
               <span className="label-mono text-sm font-bold tracking-widest">TREY SIMMONS</span>
               <span className="label-mono text-xs font-bold tracking-widest text-muted-foreground">SENIOR CREATIVE DIRECTOR</span>
@@ -647,15 +1322,27 @@ export default function Home() {
 
             {/* Portrait circle — desktop only, top-aligned with h1 */}
             <figure className="hidden md:flex md:justify-center shrink-0 md:mt-[12px]">
-              <div className="h-80 w-80 overflow-hidden rounded-full border-4 border-[var(--lime)] xl:h-[360px] xl:w-[360px]">
-                <img
-                  src={`${BASE}trey-halftone-hero.jpg`}
-                  alt="Trey Simmons"
-                  fetchPriority="high"
-                  decoding="async"
-                  className="h-full w-full object-cover object-top"
-                />
-              </div>
+              <button
+                type="button"
+                onClick={triggerPortraitGame}
+                className="desktop-game-portrait group relative h-80 w-80 overflow-hidden rounded-full border-4 border-[var(--lime)] text-left xl:h-[360px] xl:w-[360px]"
+                aria-label="Play the hidden thirty-second game"
+              >
+                <span className="portrait-flip-inner">
+                  <span className="portrait-flip-face portrait-flip-front">
+                    <img
+                      src={`${BASE}trey-halftone-hero.jpg`}
+                      alt="Trey Simmons"
+                      fetchPriority="high"
+                      decoding="async"
+                      className="h-full w-full object-cover object-top"
+                    />
+                  </span>
+                  <span className="portrait-flip-face portrait-flip-back" aria-hidden="true">
+                    <img src={`${BASE}arcade-coin.png`} alt="" decoding="async" className="portrait-coin-image" />
+                  </span>
+                </span>
+              </button>
             </figure>
           </div>
 
@@ -880,6 +1567,52 @@ export default function Home() {
           <span className="label-mono text-muted-foreground">Designed loud. Built fast.</span>
         </div>
       </footer>
+
+      {gameStage === 'intro' && (
+        <div className="portrait-intro-overlay" role="dialog" aria-modal="true" aria-label="Hidden game invitation">
+          <button type="button" className="intro-dismiss" onClick={closeGameExperience} aria-label="Close game invitation">×</button>
+          <div className="portrait-intro-card">
+            <div className="portrait-intro-image portrait-coin-large">
+              <img src={`${BASE}arcade-coin.png`} alt="" decoding="async" className="portrait-coin-image" />
+            </div>
+            <div className="relative z-10 px-7 pb-7 pt-5 text-center">
+              <p className="label-mono text-lime">A tiny portfolio detour</p>
+              <h2 className="display-xl mt-3 text-4xl text-paper">Ready?</h2>
+              <button type="button" onClick={beginFromIntro} className="portrait-play-button display-xl mt-6">
+                Play <span>→</span>
+              </button>
+              <p className="label-mono mt-4 text-xs text-muted-foreground">Keys: ← → rotate · ↑ thrust · SPACE fire</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {gameStage === 'playing' && (
+        <AsteroidsGame onExit={closeGameExperience} onGameOver={handleGameOver} />
+      )}
+
+      {gameStage === 'over' && (
+        <div className="game-over-screen" role="dialog" aria-modal="true" aria-label="Game over">
+          <button type="button" className="intro-dismiss" onClick={closeGameExperience} aria-label="Close game">×</button>
+          <div className="game-over-card score-card halftone">
+            <div className="relative z-10 bg-ink/90 p-8 text-center">
+              <p className="display-xl text-5xl text-paper">Time.</p>
+              <p className="label-mono mt-6 text-lime">Final score</p>
+              <p className="display-xl mt-1 text-[clamp(4.5rem,18vw,8rem)] leading-none text-paper">
+                {finalScore.toString().padStart(4, '0')}
+              </p>
+              <div className="mt-8 flex flex-col gap-3">
+                <button type="button" onClick={() => setGameStage('playing')} className="portrait-play-button display-xl w-full justify-center">
+                  Play again
+                </button>
+                <button type="button" onClick={closeGameExperience} className="game-back-button display-xl w-full justify-center">
+                  Back to work <span>→</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </main>
   );

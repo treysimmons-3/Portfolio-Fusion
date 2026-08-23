@@ -1,0 +1,164 @@
+Refine the existing hero arcade interaction. Keep the current implementation and game structure, but substantially improve the **portrait interaction, visual design, and Asteroids-style gameplay**.
+
+### 1. Portrait → Arcade Coin
+
+The current interaction is not strong enough. The portrait should **actually flip over**, not just rotate a few degrees and add text.
+
+On desktop hover / mobile tap:
+
+* Perform a true **3D Y-axis flip, approximately 180°**.
+* Front = existing headshot.
+* Back = a designed **arcade token / coin**.
+* The back should no longer show the portrait.
+* Make the coin feel physical: circular, yellow edge/rim, subtle depth/shadow, halftone texture.
+* Center the copy:
+
+**GOT 30 SECONDS?**
+**PLAY →**
+
+Think **arcade token hidden behind the portrait**, not text placed on top of the photograph.
+
+Keep the animation quick and satisfying: roughly 400–600ms.
+
+---
+
+### 2. Bring the Portfolio Visual Language Into the Game
+
+The current game looks too generic and disconnected from the site.
+
+Use the site's existing visual system:
+
+* near-black background
+* subtle grid
+* yellow
+* muted olive/green
+* dark red
+* deep blue
+* white
+* halftone dot patterns
+* irregular geometric forms
+
+The asteroids should feel like **pieces of the abstract artwork already floating through the portfolio hero**.
+
+Instead of plain white polygon outlines, create irregular geometric asteroids with:
+
+* dark colored fills
+* white or yellow outlines where appropriate
+* halftone patterns inside them
+* different pattern density/scale
+* slight rotation
+* multiple irregular shapes
+
+Reuse the site's actual halftone/pattern treatment wherever possible rather than inventing a separate visual style.
+
+The player's ship can remain minimal, but make it feel intentional within this system: white/yellow geometric linework with subtle glow or thrust effects.
+
+Explosions should break into small geometric/halftone fragments rather than generic particles.
+
+---
+
+### 3. Improve Asteroid Gameplay
+
+Right now every asteroid dies with one shot. Add meaningful size and durability.
+
+Use **three asteroid classes**:
+
+**LARGE**
+
+* 3 hits to destroy
+* visually largest
+* slower movement
+* each hit should visibly damage/change it
+* when destroyed, split into 2 medium asteroids
+
+**MEDIUM**
+
+* 2 hits to destroy
+* medium speed
+* when destroyed, split into 2 small asteroids
+
+**SMALL**
+
+* 1 hit to destroy
+* fastest
+* does not split
+
+Give each size an appropriate score value, for example:
+
+* Large: 100
+* Medium: 200
+* Small: 300
+
+Each hit should provide immediate feedback:
+
+* flash
+* brief outline change
+* small fragment burst
+* subtle impact movement
+
+The player should be able to understand that larger objects require more hits without needing instructions.
+
+---
+
+### 4. Make the 30 Seconds Feel Better
+
+Keep the game intentionally short and addictive.
+
+* 30-second countdown
+* gradually increase asteroid density as time decreases
+* start approachable
+* become noticeably more chaotic in the final 10 seconds
+* maintain responsive steering and shooting
+* avoid overwhelming the player immediately
+* allow rapid firing, but with a sensible cooldown
+* preserve momentum/rotation characteristic of Asteroids-style movement
+
+Add a subtle final **5-second countdown emphasis** using the yellow visual language.
+
+---
+
+### 5. UI Refinement
+
+The current SCORE / TIME / EXIT UI is directionally good. Refine it to match the portfolio typography and visual language.
+
+Keep the interface minimal.
+
+Desktop:
+
+* score upper left
+* timer centered
+* exit upper right
+* small keyboard-control hint only at the beginning, then fade it
+
+Mobile:
+
+* keep the current touch-control concept
+* make controls subtle and transparent
+* large enough to use comfortably without visually dominating the game
+
+---
+
+### 6. Game Over
+
+At 0 seconds, pause gameplay and transition cleanly to:
+
+**TIME.**
+
+**SCORE: 2,840**
+
+**PLAY AGAIN**
+**BACK TO WORK →**
+
+Use the same typography, yellow accent, halftone/geometric styling, and animation language as the portfolio.
+
+---
+
+### Important
+
+Do **not** rebuild the feature from scratch or redesign the surrounding hero.
+
+This pass should make the existing implementation feel like a game that could only exist on this portfolio.
+
+The key changes are:
+
+**real headshot-to-coin flip → portfolio artwork becomes the asteroid visual system → large/medium/small multi-hit asteroid mechanics → splitting asteroids → stronger impact feedback → polished 30-second arcade pacing.**
