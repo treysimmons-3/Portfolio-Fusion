@@ -36,11 +36,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build portfolio
-        run: pnpm --filter @workspace/portfolio build
-        env:
-          PORT: 4173
-          BASE_PATH: /
+     - name: Build portfolio
+  run: pnpm --filter @workspace/portfolio build
+  env:
+    PORT: 4173
+    BASE_PATH: /
+    VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+    VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
