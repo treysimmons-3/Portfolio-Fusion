@@ -15,6 +15,12 @@ import {
 // Hero images live in /public so the browser can preload them before JS runs
 const BASE = import.meta.env.BASE_URL;
 const heroAbstract = `${BASE}hero-abstract.jpg`;
+// Arcade gameplay sound is intentionally desktop-only. Mobile stays silent to
+// preserve the responsive pointer controls on physical devices.
+const canUseDesktopArcadeAudio = () => (
+  typeof window !== 'undefined'
+  && window.matchMedia('(hover: hover) and (pointer: fine)').matches
+);
 
 import projectMasterData  from '@assets/images/projects/master-data-quest.jpg';
 import projectMasterDataVideo from '@assets/images/projects/master-data-quest.mp4';
@@ -412,7 +418,25 @@ function StatCol({ value, label, delay, active }: {
 }
 
 // ── 30-second portrait Easter egg ────────────────────────────────────────────
-type GameStage = 'closed' | 'intro' | 'playing' | 'over';
+type GameStage = 'closed' | 'intro' | 'coin-drop' | 'playing' | 'over';
+
+function LifeShips({ lives }: { lives: number }) {
+  return (
+    <div className="game-life-ships" role="img" aria-label={`${lives} ${lives === 1 ? 'life' : 'lives'} remaining`}>
+      {[0, 1, 2].map((ship) => (
+        <svg
+          key={ship}
+          viewBox="0 0 24 28"
+          className={`game-life-ship ${ship < lives ? 'is-active' : 'is-spent'}`}
+          aria-hidden="true"
+        >
+          <path d="M12 2 21 23l-9-4-9 4L12 2Z" />
+          <path d="M8 21 9 26l3-3 3 3 1-5" />
+        </svg>
+      ))}
+    </div>
+  );
+}
 
 function AsteroidsGame({
   onExit,
@@ -422,11 +446,26 @@ function AsteroidsGame({
   onGameOver: (score: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const controlsRef = useRef({ left: false, right: false, thrust: false, fire: false });
+  type GameControl = 'left' | 'right' | 'thrust' | 'fire';
+  const controlsRef = useRef({
+    left: false, right: false, thrust: false, fire: false, reverse: false,
+    turnPower: 1, thrustPower: 0, reversePower: 0,
+  });
   const [score, setScore] = useState(0);
-  const [seconds, setSeconds] = useState(30);
+  const [level, setLevel] = useState(1);
   const [lives, setLives] = useState(3);
+  const [dualLaserSeconds, setDualLaserSeconds] = useState(0);
   const [showHint, setShowHint] = useState(true);
+  const [reverseActive, setReverseActive] = useState(false);
+  const [activeControls, setActiveControls] = useState<Record<GameControl, boolean>>({
+    left: false,
+    right: false,
+    thrust: false,
+    fire: false,
+  });
+  const dpadRef = useRef<HTMLDivElement>(null);
+  const dpadPointerIdRef = useRef<number | null>(null);
+  const [joystickPosition, setJoystickPosition] = useState({ x: 0, y: 0 });
   const onExitRef = useRef(onExit);
   const onGameOverRef = useRef(onGameOver);
 
@@ -443,31 +482,57 @@ function AsteroidsGame({
     type Asteroid = {
       x: number; y: number; vx: number; vy: number; r: number; spin: number; angle: number;
       size: AsteroidSize; hits: number; maxHits: number; points: number[]; hue: number; sprite: number;
-      flashUntil: number; destroyed: boolean; destroyedAt: number;
+      flashUntil: number; blastRadius: number; destroyed: boolean; destroyedAt: number;
     };
     type AlphaMask = { size: number; alpha: Uint8ClampedArray };
     type Bullet = { x: number; y: number; vx: number; vy: number; life: number };
+    type EnemyLaser = { x: number; y: number; vx: number; vy: number; life: number };
+    type BlastWave = { x: number; y: number; radius: number; life: number };
     type Fragment = { x: number; y: number; vx: number; vy: number; life: number; size: number; angle: number };
 
     let width = window.innerWidth;
     let height = window.innerHeight;
+    let lowPower = Math.min(width, height) < 640;
+    let contentScale = lowPower ? Math.max(.24, Math.min(.34, Math.min(width, height) / 1560)) : 1;
     let raf = 0;
     let last = performance.now();
+    let lastFrameAt = 0;
     let lastFire = 0;
+    let lastThrustSound = 0;
+    let lastBeatAt = 0;
+    let beatIndex = 0;
     let running = true;
     let scoreValue = 0;
-    let displayedSecond = 30;
-    let spawnTimer = 2.4;
-    let ufoTimer = 8;
-    let ufo: { x: number; y: number; vx: number; phase: number; soundPlayed: boolean } | null = null;
+    let displayedDualLaserSecond = 0;
+    let dualLaserUntil = 0;
+    let levelValue = 1;
+    let levelTransitionUntil = 0;
+    let ufoTimer = 7;
+    let ufoSpawned = false;
+    let ufo: {
+      x: number;
+      y: number;
+      vx: number;
+      phase: number;
+      baseY: number;
+      amplitude: number;
+      frequency: number;
+      sizeScale: number;
+      shotCooldown: number;
+      soundPlayed: boolean;
+    } | null = null;
     let livesValue = 3;
     let invulnerableUntil = 0;
     let shipDestroyedUntil = 0;
     let gameOverTimer: number | undefined;
+    const desktopAudio = canUseDesktopArcadeAudio();
     let audioContext: AudioContext | null = null;
+    const audioBuffers = new Map<string, AudioBuffer>();
     const startedAt = performance.now();
     const ship = { x: width / 2, y: height / 2, vx: 0, vy: 0, angle: -Math.PI / 2 };
     const bullets: Bullet[] = [];
+    const enemyLasers: EnemyLaser[] = [];
+    const blastWaves: BlastWave[] = [];
     const fragments: Fragment[] = [];
     const asteroidImageSources: Record<AsteroidSize, string[]> = {
       large: ['asteroid-mix-large.svg', 'asteroid-yellow-large.svg', 'asteroid-blue-large.svg', 'asteroid-red-large.svg'],
@@ -501,59 +566,104 @@ function AsteroidsGame({
     const ufoImage = new Image();
     let ufoImageReady = false;
     ufoImage.onload = () => { ufoImageReady = true; };
-    ufoImage.src = `${BASE}arcade-ufo.png`;
-    const stars = Array.from({ length: 72 }, (_, i) => ({
-      x: ((i * 127) % 1000) / 1000,
-      y: ((i * 283) % 1000) / 1000,
-      r: i % 7 === 0 ? 1.5 : 0.8,
-    }));
+    ufoImage.src = `${BASE}arcade-ufo-sports.svg`;
+    const seeded = (seed: number) => {
+      const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+      return value - Math.floor(value);
+    };
+    const stars = Array.from({ length: 320 }, (_, i) => {
+      const inCloud = i < 220;
+      const x = seeded(i + 2);
+      const cloudCenter = .72 - x * .32;
+      const y = inCloud
+        ? (cloudCenter + (seeded(i + 31) - .5) * (.07 + seeded(i + 101) * .22) + 1) % 1
+        : seeded(i + 401);
+      const depth = .2 + seeded(i + 701) * .8;
+      return {
+        x,
+        y,
+        r: .28 + depth * 1.05,
+        alpha: .2 + depth * .62,
+        twinkle: .45 + seeded(i + 901) * 1.5,
+        phase: seeded(i + 1101) * Math.PI * 2,
+        drift: .00004 + depth * .00018,
+        tone: seeded(i + 1301) > .82 ? 'blue' : seeded(i + 1301) > .68 ? 'warm' : 'white',
+      };
+    });
     const wakeAudio = () => {
-      if (!audioContext) audioContext = new AudioContext();
-      if (audioContext.state === 'suspended') void audioContext.resume();
+      if (!desktopAudio) return;
+      if (!audioContext) {
+        try {
+          audioContext = new AudioContext();
+        } catch {
+          return;
+        }
+      }
+      if (audioContext.state === 'suspended') void audioContext.resume().catch(() => {});
     };
-    const playSound = (frequency: number, duration: number, type: OscillatorType = 'square', volume = .035) => {
+    const playClip = (name: string, volume = .28, rate = 1) => {
+      if (!desktopAudio) return;
       wakeAudio();
-      if (!audioContext) return;
-      const oscillator = audioContext.createOscillator();
+      const buffer = audioBuffers.get(name);
+      if (!audioContext || !buffer || audioContext.state !== 'running') return;
+      const source = audioContext.createBufferSource();
       const gain = audioContext.createGain();
-      oscillator.type = type;
-      oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
-      gain.gain.setValueAtTime(volume, audioContext.currentTime);
-      gain.gain.exponentialRampToValueAtTime(.001, audioContext.currentTime + duration);
-      oscillator.connect(gain);
+      source.buffer = buffer;
+      source.playbackRate.value = rate;
+      gain.gain.value = volume;
+      source.connect(gain);
       gain.connect(audioContext.destination);
-      oscillator.start();
-      oscillator.stop(audioContext.currentTime + duration);
+      source.start();
     };
-    const playUfoArrivalSound = () => {
+    const loadDesktopAudio = async () => {
+      if (!desktopAudio) return;
       wakeAudio();
       if (!audioContext) return;
-      const start = audioContext.currentTime;
-      [0, .19, .38].forEach((offset, index) => {
-        const oscillator = audioContext!.createOscillator();
-        const gain = audioContext!.createGain();
-        const noteStart = start + offset;
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(index === 1 ? 135 : 180, noteStart);
-        oscillator.frequency.linearRampToValueAtTime(index === 1 ? 105 : 145, noteStart + .14);
-        gain.gain.setValueAtTime(.001, noteStart);
-        gain.gain.linearRampToValueAtTime(.05, noteStart + .035);
-        gain.gain.exponentialRampToValueAtTime(.001, noteStart + .17);
-        oscillator.connect(gain);
-        gain.connect(audioContext!.destination);
-        oscillator.start(noteStart);
-        oscillator.stop(noteStart + .19);
-      });
+      const clips = {
+        fire: 'arcade-fire.wav',
+        thrust: 'arcade-thrust.wav',
+        bangSmall: 'arcade-bang-small.wav',
+        bangMedium: 'arcade-bang-medium.wav',
+        bangLarge: 'arcade-bang-large.wav',
+        saucerBig: 'arcade-saucer-big.wav',
+        saucerSmall: 'arcade-saucer-small.wav',
+        beat1: 'arcade-beat-1.wav',
+        beat2: 'arcade-beat-2.wav',
+      };
+      await Promise.all(Object.entries(clips).map(async ([name, file]) => {
+        try {
+          const response = await fetch(`${BASE}${file}`);
+          const data = await response.arrayBuffer();
+          const buffer = await audioContext!.decodeAudioData(data);
+          audioBuffers.set(name, buffer);
+        } catch {
+          // Individual clips are optional; gameplay stays functional without them.
+        }
+      }));
+    };
+    void loadDesktopAudio();
+    const playFireSound = () => playClip('fire', .23);
+    const playThrustSound = () => playClip('thrust', .15);
+    const playAsteroidHitSound = (size: AsteroidSize, destroyed: boolean) => {
+      const clip = size === 'large' ? 'bangLarge' : size === 'medium' ? 'bangMedium' : 'bangSmall';
+      playClip(clip, destroyed ? .32 : .15, destroyed ? 1 : 1.15);
+    };
+    const playUfoHitSound = () => playClip('saucerSmall', .32, 1.08);
+    const playShipDeathSound = () => playClip('bangLarge', .38, .78);
+    const playUfoArrivalSound = (small: boolean) => playClip(small ? 'saucerSmall' : 'saucerBig', .24);
+    const playBeat = () => {
+      playClip(beatIndex % 2 === 0 ? 'beat1' : 'beat2', .25);
+      beatIndex += 1;
     };
     const asteroid = (size: AsteroidSize = 'large', origin?: { x: number; y: number }, velocity?: { x: number; y: number }): Asteroid => {
       const specs = {
-        large: { r: 62, hits: 3, speed: 28, points: 100 },
-        medium: { r: 38, hits: 2, speed: 48, points: 200 },
-        small: { r: 17, hits: 1, speed: 74, points: 300 },
+        large: { r: 62 * contentScale, hits: 3, speed: 28, points: 100 },
+        medium: { r: 38 * contentScale, hits: 2, speed: 48, points: 200 },
+        small: { r: 17 * contentScale, hits: 1, speed: 74, points: 300 },
       }[size];
       const edge = Math.floor(Math.random() * 4);
       const r = specs.r * (.88 + Math.random() * .2);
-      const speed = specs.speed * (.8 + Math.random() * .4);
+      const speed = specs.speed * (1 + (levelValue - 1) * .13) * (.8 + Math.random() * .4);
       const x = origin?.x ?? (edge === 0 ? -r : edge === 1 ? width + r : Math.random() * width);
       const y = origin?.y ?? (edge === 2 ? -r : edge === 3 ? height + r : Math.random() * height);
       const angle = Math.atan2(height / 2 - y, width / 2 - x) + (Math.random() - .5) * 1.1;
@@ -565,17 +675,28 @@ function AsteroidsGame({
         x, y, vx: direction.x, vy: direction.y, r, spin: (Math.random() - .5) * 1.2,
         angle: Math.random() * Math.PI * 2, size, hits: specs.hits, maxHits: specs.hits,
         points, hue: Math.floor(Math.random() * 4), sprite: Math.floor(Math.random() * 4), flashUntil: 0,
+        blastRadius: levelValue >= 3 && size === 'small' ? 74 + levelValue * 4 : 0,
         destroyed: false, destroyedAt: 0,
       };
     };
-    const asteroids = [
-      asteroid('large'), asteroid('large'), asteroid('medium'), asteroid('medium'), asteroid('small'),
-    ];
+    const spawnLevelWave = (currentLevel: number) => {
+      const wave: Asteroid[] = [];
+      const largeCount = Math.max(1, 3 - Math.floor((currentLevel - 1) / 2));
+      const mediumCount = 1 + Math.floor(currentLevel / 2);
+      const smallCount = 1 + Math.floor(currentLevel / 2);
+      for (let count = 0; count < largeCount; count += 1) wave.push(asteroid('large'));
+      for (let count = 0; count < mediumCount; count += 1) wave.push(asteroid('medium'));
+      for (let count = 0; count < smallCount; count += 1) wave.push(asteroid('small'));
+      return wave;
+    };
+    const asteroids = spawnLevelWave(levelValue);
 
     const resize = () => {
       width = window.innerWidth;
       height = window.innerHeight;
-      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      lowPower = Math.min(width, height) < 640;
+      contentScale = lowPower ? Math.max(.24, Math.min(.34, Math.min(width, height) / 1560)) : 1;
+      const ratio = Math.min(window.devicePixelRatio || 1, lowPower ? 1 : 2);
       canvas.width = Math.floor(width * ratio);
       canvas.height = Math.floor(height * ratio);
       canvas.style.width = `${width}px`;
@@ -586,15 +707,35 @@ function AsteroidsGame({
     };
 
     const setControl = (key: string, value: boolean) => {
-      if (key === 'ArrowLeft' || key.toLowerCase() === 'a') controlsRef.current.left = value;
-      if (key === 'ArrowRight' || key.toLowerCase() === 'd') controlsRef.current.right = value;
-      if (key === 'ArrowUp' || key.toLowerCase() === 'w') controlsRef.current.thrust = value;
+      if (key === 'ArrowLeft' || key.toLowerCase() === 'a') {
+        controlsRef.current.left = value;
+        controlsRef.current.turnPower = value ? 1 : 0;
+      }
+      if (key === 'ArrowRight' || key.toLowerCase() === 'd') {
+        controlsRef.current.right = value;
+        controlsRef.current.turnPower = value ? 1 : 0;
+      }
+      if (key === 'ArrowUp' || key.toLowerCase() === 'w') {
+        controlsRef.current.thrust = value;
+        controlsRef.current.thrustPower = value ? 1 : 0;
+        if (value) {
+          controlsRef.current.reverse = false;
+          controlsRef.current.reversePower = 0;
+        }
+      }
+      if (key === 'ArrowDown' || key.toLowerCase() === 's') {
+        controlsRef.current.reverse = value;
+        controlsRef.current.reversePower = value ? 1 : 0;
+        if (value) {
+          controlsRef.current.thrust = false;
+          controlsRef.current.thrustPower = 0;
+        }
+      }
       if (key === ' ' || key === 'Enter') controlsRef.current.fire = value;
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      wakeAudio();
       if (event.key === 'Escape') { onExitRef.current(); return; }
-      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', ' ', 'Enter', 'a', 'A', 'd', 'D', 'w', 'W'].includes(event.key)) {
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'Enter', 'a', 'A', 'd', 'D', 'w', 'W', 's', 'S'].includes(event.key)) {
         event.preventDefault();
         setControl(event.key, true);
       }
@@ -605,7 +746,6 @@ function AsteroidsGame({
     window.addEventListener('resize', resize);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
-    window.addEventListener('pointerdown', wakeAudio);
 
     const wrap = (value: number, max: number) => (value + max) % max;
     const drawAsteroid = (item: Asteroid) => {
@@ -617,7 +757,7 @@ function AsteroidsGame({
       if (dissolveProgress > 0) {
         ctx.scale(1 + dissolveProgress * .28, 1 + dissolveProgress * .28);
         ctx.globalAlpha = 1 - dissolveProgress;
-        ctx.filter = `blur(${dissolveProgress * 4}px)`;
+        if (!lowPower) ctx.filter = `blur(${dissolveProgress * 4}px)`;
       }
       const sides = item.points.length;
       const image = asteroidImages[item.size][item.hue];
@@ -661,6 +801,15 @@ function AsteroidsGame({
         ctx.lineTo(item.r * .55, item.r * .3);
         ctx.stroke();
       }
+      if (item.blastRadius > 0 && !item.destroyed) {
+        ctx.strokeStyle = 'rgba(255,92,103,.7)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 5]);
+        ctx.beginPath();
+        ctx.arc(0, 0, item.r + 7, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
       ctx.restore();
     };
     const pointHitsAsteroid = (item: Asteroid, x: number, y: number) => {
@@ -678,7 +827,10 @@ function AsteroidsGame({
       return mask.alpha[(maskY * mask.size + maskX) * 4 + 3] > 32;
     };
     const burst = (item: Asteroid) => {
-      for (let i = 0; i < (item.size === 'large' ? 12 : 7); i += 1) {
+      const fragmentCount = lowPower
+        ? (item.size === 'large' ? 6 : 4)
+        : (item.size === 'large' ? 12 : 7);
+      for (let i = 0; i < fragmentCount; i += 1) {
         const angle = (i / 7) * Math.PI * 2 + Math.random() * .4;
         fragments.push({
           x: item.x, y: item.y, vx: Math.cos(angle) * (35 + Math.random() * 65),
@@ -687,13 +839,14 @@ function AsteroidsGame({
         });
       }
     };
-    const drawUfo = (item: { x: number; y: number; phase: number }) => {
+    const drawUfo = (item: { x: number; y: number; phase: number; sizeScale: number }) => {
       ctx.save();
       ctx.translate(item.x, item.y);
+      ctx.scale(contentScale * item.sizeScale, contentScale * item.sizeScale);
       ctx.shadowColor = '#dcf24a';
-      ctx.shadowBlur = 20;
+      ctx.shadowBlur = lowPower ? 0 : 20;
       if (ufoImageReady) {
-        ctx.drawImage(ufoImage, -74, -43, 148, 86);
+        ctx.drawImage(ufoImage, -60, -24, 120, 48);
         ctx.restore();
         return;
       }
@@ -723,35 +876,80 @@ function AsteroidsGame({
       ctx.restore();
     };
     const render = (now: number) => {
-      ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = '#080a12';
+      ctx.fillStyle = '#03050c';
       ctx.fillRect(0, 0, width, height);
-      ctx.fillStyle = 'rgba(246,245,235,.45)';
-      stars.forEach((star) => {
+
+      const isMobile = width < height;
+      const backgroundWidth = isMobile ? height : width;
+      const backgroundHeight = isMobile ? width : height;
+      ctx.save();
+      if (isMobile) {
+        ctx.translate(width, 0);
+        ctx.rotate(Math.PI / 2);
+      }
+      const elapsed = (now - startedAt) / 1000;
+      const starCount = lowPower ? 96 : stars.length;
+      for (let starIndex = 0; starIndex < starCount; starIndex += 1) {
+        const star = stars[starIndex];
+        const x = lowPower ? star.x : ((star.x + elapsed * star.drift) % 1 + 1) % 1;
+        const y = lowPower ? star.y : ((star.y + Math.sin(elapsed * .12 + star.phase) * .0007) % 1 + 1) % 1;
+        const shimmer = lowPower ? .9 : .78 + Math.sin(elapsed * star.twinkle + star.phase) * .22;
+        ctx.globalAlpha = star.alpha * shimmer;
+        ctx.fillStyle = star.tone === 'blue' ? '#a8c5ff' : star.tone === 'warm' ? '#ffe4b8' : '#f6f5eb';
         ctx.beginPath();
-        ctx.arc(star.x * width, star.y * height, star.r, 0, Math.PI * 2);
+        ctx.arc(x * backgroundWidth, y * backgroundHeight, star.r * (1 + shimmer * .12), 0, Math.PI * 2);
         ctx.fill();
-      });
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
       asteroids.forEach(drawAsteroid);
       if (ufo) drawUfo(ufo);
+      blastWaves.forEach((wave) => {
+        const progress = 1 - wave.life / .42;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, wave.life / .42);
+        ctx.strokeStyle = '#ff5c67';
+        ctx.shadowColor = '#ff5c67';
+        ctx.shadowBlur = lowPower ? 0 : 12;
+        ctx.lineWidth = 2 * contentScale;
+        ctx.beginPath();
+        ctx.arc(wave.x, wave.y, Math.max(2, wave.radius * progress), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      });
       fragments.forEach((fragment) => {
         ctx.save();
         ctx.translate(fragment.x, fragment.y);
         ctx.rotate(fragment.angle);
+        ctx.scale(contentScale, contentScale);
         ctx.globalAlpha = Math.max(0, fragment.life * 1.5);
         ctx.fillStyle = fragment.life > .4 ? '#dcf24a' : '#f6f5eb';
         ctx.fillRect(-fragment.size, -fragment.size, fragment.size * 2, fragment.size * 2);
         ctx.restore();
       });
+      enemyLasers.forEach((laser) => {
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, laser.life * 2);
+        ctx.strokeStyle = '#ff5c67';
+        ctx.shadowColor = '#ff5c67';
+        ctx.shadowBlur = lowPower ? 0 : 10;
+        ctx.lineWidth = 2.5 * contentScale;
+        ctx.beginPath();
+        ctx.moveTo(laser.x, laser.y);
+        ctx.lineTo(laser.x - laser.vx * .035, laser.y - laser.vy * .035);
+        ctx.stroke();
+        ctx.restore();
+      });
       bullets.forEach((bullet) => {
         ctx.fillStyle = '#dcf24a';
         ctx.beginPath();
-        ctx.arc(bullet.x, bullet.y, 3, 0, Math.PI * 2);
+        ctx.arc(bullet.x, bullet.y, 3 * contentScale, 0, Math.PI * 2);
         ctx.fill();
       });
       ctx.save();
       ctx.translate(ship.x, ship.y);
       ctx.rotate(ship.angle + Math.PI / 2);
+      ctx.scale(contentScale, contentScale);
       if (now < shipDestroyedUntil && Math.floor(now / 90) % 2 === 0) {
         ctx.restore();
         return;
@@ -762,60 +960,132 @@ function AsteroidsGame({
         ctx.moveTo(-6, 13); ctx.lineTo(0, 25 + Math.random() * 8); ctx.lineTo(6, 13);
         ctx.fill();
       }
-      ctx.strokeStyle = '#f6f5eb';
+      if (controlsRef.current.reverse) {
+        const fieldStrength = controlsRef.current.reversePower;
+        ctx.strokeStyle = `rgba(220,242,74,${.42 + fieldStrength * .42})`;
+        ctx.lineWidth = 2 + fieldStrength * 2;
+        ctx.shadowColor = '#dcf24a';
+        ctx.shadowBlur = lowPower ? 0 : 14;
+        ctx.beginPath();
+        ctx.arc(0, 19, 13 + fieldStrength * 7, Math.PI * .18, Math.PI * .82);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = '#dcf24a';
       ctx.lineWidth = 3;
       ctx.shadowColor = '#dcf24a';
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = lowPower ? 0 : 8;
       ctx.beginPath();
       ctx.moveTo(0, -16); ctx.lineTo(12, 14); ctx.lineTo(0, 8); ctx.lineTo(-12, 14); ctx.closePath();
       ctx.stroke();
       ctx.restore();
     };
 
+    const awardScore = (points: number) => {
+      scoreValue += points;
+      setScore(scoreValue);
+    };
+
+    const beginNextLevel = (now: number) => {
+      levelValue += 1;
+      setLevel(levelValue);
+      levelTransitionUntil = now + 750;
+      ufoTimer = Math.max(3.5, 7 - levelValue * .55);
+      ufoSpawned = false;
+      asteroids.push(...spawnLevelWave(levelValue));
+    };
+
     const tick = (now: number) => {
       if (!running) return;
-      const dt = Math.min((now - last) / 1000, .05);
-      last = now;
-      const remaining = Math.max(0, 30 - (now - startedAt) / 1000);
-      const rounded = Math.ceil(remaining);
-      if (rounded !== displayedSecond) {
-        displayedSecond = rounded;
-        setSeconds(rounded);
-      }
-      if (remaining <= 0) {
-        running = false;
-        onGameOverRef.current(scoreValue);
+      if (lowPower && now - lastFrameAt < 1000 / 30) {
+        raf = requestAnimationFrame(tick);
         return;
       }
-      spawnTimer -= dt;
-      const chaos = remaining <= 10;
-      if (spawnTimer <= 0 && asteroids.length < (chaos ? 13 : 8)) {
-        asteroids.push(asteroid(chaos && Math.random() > .45 ? 'medium' : 'small'));
-        spawnTimer = chaos ? .85 : 2.2;
+      lastFrameAt = now;
+      const dt = Math.min((now - last) / 1000, .05);
+      last = now;
+      const dualLaserRounded = Math.ceil(Math.max(0, dualLaserUntil - now) / 1000);
+      if (dualLaserRounded !== displayedDualLaserSecond) {
+        displayedDualLaserSecond = dualLaserRounded;
+        setDualLaserSeconds(dualLaserRounded);
+      }
+      const beatInterval = now < dualLaserUntil
+        ? 320
+        : Math.max(480, 760 - (levelValue - 1) * 42);
+      if (now - lastBeatAt >= beatInterval) {
+        lastBeatAt = now;
+        playBeat();
       }
       ufoTimer -= dt;
-      if (!ufo && remaining < 25 && ufoTimer <= 0) {
-        ufo = { x: -76, y: height * (.25 + Math.random() * .45), vx: 110, phase: 0, soundPlayed: false };
+      if (!ufo && !ufoSpawned && asteroids.length > 0 && ufoTimer <= 0 && asteroids.length <= Math.max(2, levelValue + 1)) {
+        const baseY = height * (.2 + Math.random() * .6);
+        const sizeScale = Math.max(.56, 1 - (levelValue - 1) * .1);
+        ufo = {
+          x: -64 * sizeScale,
+          y: baseY,
+          vx: 145 + Math.random() * 45 + (levelValue - 1) * 26,
+          phase: Math.random() * Math.PI * 2,
+          baseY,
+          amplitude: Math.min(82, Math.max(34, height * .16)),
+          frequency: 1.8 + Math.random() * 1.1 + (levelValue - 1) * .12,
+          sizeScale,
+          shotCooldown: 1.2 + Math.random() * .9,
+          soundPlayed: false,
+        };
       }
       if (ufo) {
-        ufo.x += ufo.vx * dt;
-        ufo.y += Math.sin(now / 280) * 18 * dt;
-        ufo.phase += dt * 8;
+        ufo.x += (ufo.vx + Math.sin(ufo.phase * .7) * 28) * dt;
+        ufo.phase += dt * ufo.frequency;
+        ufo.shotCooldown -= dt;
+        ufo.y = ufo.baseY
+          + Math.sin(ufo.phase) * ufo.amplitude
+          + Math.sin(ufo.phase * .45 + 1.2) * 12;
         if (!ufo.soundPlayed && ufo.x > 0) {
           ufo.soundPlayed = true;
-          playUfoArrivalSound();
+          playUfoArrivalSound(ufo.sizeScale < .82);
         }
-        if (ufo.x > width + 76) {
+        if (levelValue > 1 && ufo.shotCooldown <= 0) {
+          const shotAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+          enemyLasers.push({
+            x: ufo.x,
+            y: ufo.y,
+            vx: Math.cos(shotAngle) * (245 + levelValue * 12),
+            vy: Math.sin(shotAngle) * (245 + levelValue * 12),
+            life: 2.6,
+          });
+          ufo.shotCooldown = Math.max(.8, 2.2 - levelValue * .12) + Math.random() * .7;
+          playClip('fire', .16, .72);
+        }
+        if (ufo.x > width + 64 * ufo.sizeScale) {
           ufo = null;
-          ufoTimer = 99;
+          ufoSpawned = true;
         }
       }
+      enemyLasers.forEach((laser) => {
+        laser.x = wrap(laser.x + laser.vx * dt, width);
+        laser.y = wrap(laser.y + laser.vy * dt, height);
+        laser.life -= dt;
+      });
+      for (let laserIndex = enemyLasers.length - 1; laserIndex >= 0; laserIndex -= 1) {
+        if (enemyLasers[laserIndex].life <= 0) enemyLasers.splice(laserIndex, 1);
+      }
+      blastWaves.forEach((wave) => { wave.life -= dt; });
+      for (let waveIndex = blastWaves.length - 1; waveIndex >= 0; waveIndex -= 1) {
+        if (blastWaves[waveIndex].life <= 0) blastWaves.splice(waveIndex, 1);
+      }
 
-      if (controlsRef.current.left) ship.angle -= 3.8 * dt;
-      if (controlsRef.current.right) ship.angle += 3.8 * dt;
+      if (controlsRef.current.left) ship.angle -= 3.8 * controlsRef.current.turnPower * dt;
+      if (controlsRef.current.right) ship.angle += 3.8 * controlsRef.current.turnPower * dt;
       if (controlsRef.current.thrust) {
-        ship.vx += Math.cos(ship.angle) * 210 * dt;
-        ship.vy += Math.sin(ship.angle) * 210 * dt;
+        ship.vx += Math.cos(ship.angle) * 210 * controlsRef.current.thrustPower * dt;
+        ship.vy += Math.sin(ship.angle) * 210 * controlsRef.current.thrustPower * dt;
+        if (now - lastThrustSound > 115) {
+          lastThrustSound = now;
+          playThrustSound();
+        }
+      }
+      if (controlsRef.current.reverse) {
+        ship.vx -= Math.cos(ship.angle) * 150 * controlsRef.current.reversePower * dt;
+        ship.vy -= Math.sin(ship.angle) * 150 * controlsRef.current.reversePower * dt;
       }
       ship.vx *= .992;
       ship.vy *= .992;
@@ -823,8 +1093,19 @@ function AsteroidsGame({
       ship.y = wrap(ship.y + ship.vy * dt, height);
       if (controlsRef.current.fire && now - lastFire > 210) {
         lastFire = now;
-        bullets.push({ x: ship.x, y: ship.y, vx: Math.cos(ship.angle) * 460, vy: Math.sin(ship.angle) * 460, life: 1.05 });
-        playSound(420, .045, 'square', .018);
+        const firingAngles = now < dualLaserUntil
+          ? [ship.angle - .12, ship.angle, ship.angle + .12]
+          : [ship.angle];
+        firingAngles.forEach((angle) => {
+          bullets.push({
+            x: ship.x,
+            y: ship.y,
+            vx: Math.cos(angle) * 460,
+            vy: Math.sin(angle) * 460,
+            life: 1.05,
+          });
+        });
+        playFireSound();
       }
 
       bullets.forEach((bullet) => {
@@ -848,22 +1129,34 @@ function AsteroidsGame({
       if (ufo) {
         for (let bulletIndex = bullets.length - 1; bulletIndex >= 0; bulletIndex -= 1) {
           const bullet = bullets[bulletIndex];
-          if (Math.hypot(ufo.x - bullet.x, ufo.y - bullet.y) < 58) {
-            for (let fragment = 0; fragment < 14; fragment += 1) {
-              const angle = (fragment / 14) * Math.PI * 2;
+          if (Math.hypot(ufo.x - bullet.x, ufo.y - bullet.y) < 46 * contentScale * ufo.sizeScale) {
+            const ufoFragments = lowPower ? 8 : 14;
+            for (let fragment = 0; fragment < ufoFragments; fragment += 1) {
+              const angle = (fragment / ufoFragments) * Math.PI * 2;
               fragments.push({
                 x: ufo.x, y: ufo.y, vx: Math.cos(angle) * 90, vy: Math.sin(angle) * 90,
                 life: .7, size: 3, angle,
               });
             }
             bullets.splice(bulletIndex, 1);
-            playSound(880, .12, 'triangle', .045);
+            playUfoHitSound();
             ufo = null;
-            ufoTimer = 99;
-            scoreValue += 750;
-            setScore(scoreValue);
+            ufoSpawned = true;
+            dualLaserUntil = now + 10000;
+            displayedDualLaserSecond = 10;
+            setDualLaserSeconds(10);
+            awardScore(750);
             break;
           }
+        }
+      }
+      let enemyLaserHit = false;
+      for (let laserIndex = enemyLasers.length - 1; laserIndex >= 0; laserIndex -= 1) {
+        const laser = enemyLasers[laserIndex];
+        if (Math.hypot(laser.x - ship.x, laser.y - ship.y) < 17 * Math.max(contentScale, .5)) {
+          enemyLasers.splice(laserIndex, 1);
+          enemyLaserHit = true;
+          break;
         }
       }
       asteroids.forEach((item) => {
@@ -878,20 +1171,25 @@ function AsteroidsGame({
           asteroids.splice(asteroidIndex, 1);
         }
       }
+      const blastHitShip = blastWaves.some((wave) => {
+        const progress = 1 - wave.life / .42;
+        return Math.hypot(wave.x - ship.x, wave.y - ship.y) < wave.radius * progress;
+      });
       if (now > invulnerableUntil) {
         const shipPoints = [
           [ship.x, ship.y],
-          [ship.x + Math.cos(ship.angle) * 16, ship.y + Math.sin(ship.angle) * 16],
-          [ship.x + Math.cos(ship.angle + 2.35) * 12, ship.y + Math.sin(ship.angle + 2.35) * 12],
-          [ship.x + Math.cos(ship.angle - 2.35) * 12, ship.y + Math.sin(ship.angle - 2.35) * 12],
+          [ship.x + Math.cos(ship.angle) * 16 * contentScale, ship.y + Math.sin(ship.angle) * 16 * contentScale],
+          [ship.x + Math.cos(ship.angle + 2.35) * 12 * contentScale, ship.y + Math.sin(ship.angle + 2.35) * 12 * contentScale],
+          [ship.x + Math.cos(ship.angle - 2.35) * 12 * contentScale, ship.y + Math.sin(ship.angle - 2.35) * 12 * contentScale],
         ];
         const hitAsteroid = asteroids.some((item) => !item.destroyed && shipPoints.some(([x, y]) => pointHitsAsteroid(item, x, y)));
-        const hitUfo = ufo !== null && Math.hypot(ufo.x - ship.x, ufo.y - ship.y) < 58;
-        if (hitAsteroid || hitUfo) {
+        const hitUfo = ufo !== null && Math.hypot(ufo.x - ship.x, ufo.y - ship.y) < 46 * contentScale * ufo.sizeScale;
+        if (hitAsteroid || hitUfo || enemyLaserHit || blastHitShip) {
           const impactX = ship.x;
           const impactY = ship.y;
-          for (let fragment = 0; fragment < 18; fragment += 1) {
-            const angle = (fragment / 18) * Math.PI * 2;
+          const shipFragments = lowPower ? 10 : 18;
+          for (let fragment = 0; fragment < shipFragments; fragment += 1) {
+            const angle = (fragment / shipFragments) * Math.PI * 2;
             fragments.push({
               x: impactX, y: impactY, vx: Math.cos(angle) * (55 + Math.random() * 80),
               vy: Math.sin(angle) * (55 + Math.random() * 80), life: .5 + Math.random() * .35,
@@ -900,7 +1198,7 @@ function AsteroidsGame({
           }
           livesValue -= 1;
           setLives(livesValue);
-          playSound(105, .24, 'sawtooth', .055);
+          playShipDeathSound();
           invulnerableUntil = now + 2200;
           shipDestroyedUntil = now + 480;
           ship.x = width / 2;
@@ -924,12 +1222,24 @@ function AsteroidsGame({
             item.vy *= .9;
             burst(item);
             bullets.splice(bulletIndex, 1);
-            playSound(item.hits <= 0 ? 190 : 320, .09, 'triangle', .03);
+            playAsteroidHitSound(item.size, item.hits <= 0);
             if (item.hits <= 0) {
               item.destroyed = true;
               item.destroyedAt = now;
-              scoreValue += item.size === 'large' ? 100 : item.size === 'medium' ? 200 : 300;
-              setScore(scoreValue);
+              awardScore(item.size === 'large' ? 100 : item.size === 'medium' ? 200 : 300);
+              if (item.blastRadius > 0) {
+                blastWaves.push({ x: item.x, y: item.y, radius: item.blastRadius, life: .42 });
+                asteroids.forEach((nearby) => {
+                  if (
+                    nearby !== item
+                    && !nearby.destroyed
+                    && Math.hypot(nearby.x - item.x, nearby.y - item.y) < item.blastRadius
+                  ) {
+                    nearby.hits = Math.max(0, nearby.hits - 1);
+                    nearby.flashUntil = now + 180;
+                  }
+                });
+              }
               if (item.size !== 'small') {
                 const childSize: AsteroidSize = item.size === 'large' ? 'medium' : 'small';
                 const parentSpeed = Math.hypot(item.vx, item.vy);
@@ -948,6 +1258,9 @@ function AsteroidsGame({
           }
         }
       }
+      if (asteroids.length === 0 && !ufo && now >= levelTransitionUntil) {
+        beginNextLevel(now);
+      }
       render(now);
       if (running) raf = requestAnimationFrame(tick);
     };
@@ -962,49 +1275,138 @@ function AsteroidsGame({
       window.removeEventListener('resize', resize);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
-      window.removeEventListener('pointerdown', wakeAudio);
       void audioContext?.close();
     };
   }, []);
 
-  const press = (control: keyof typeof controlsRef.current, active: boolean) => {
+  const press = (control: GameControl, active: boolean) => {
     controlsRef.current[control] = active;
+    setActiveControls((current) => current[control] === active ? current : { ...current, [control]: active });
   };
-  const controlButton = (label: string, control: keyof typeof controlsRef.current, symbol: string) => (
+  const clearJoystick = () => {
+    press('left', false);
+    press('right', false);
+    press('thrust', false);
+    controlsRef.current.reverse = false;
+    controlsRef.current.turnPower = 0;
+    controlsRef.current.thrustPower = 0;
+    controlsRef.current.reversePower = 0;
+    setJoystickPosition({ x: 0, y: 0 });
+  };
+  const pressReverse = (active: boolean) => {
+    controlsRef.current.reverse = active;
+    controlsRef.current.reversePower = active ? 1 : 0;
+    setReverseActive(active);
+  };
+  const updateJoystickFromPointer = (event: React.PointerEvent<HTMLDivElement>) => {
+    const dpad = dpadRef.current;
+    if (!dpad) return;
+    const bounds = dpad.getBoundingClientRect();
+    const radius = Math.min(bounds.width, bounds.height) * .5 - 18;
+    const dx = event.clientX - (bounds.left + bounds.width / 2);
+    const dy = event.clientY - (bounds.top + bounds.height / 2);
+    const distance = Math.hypot(dx, dy);
+    const scale = distance > radius ? radius / distance : 1;
+    const x = (dx * scale) / radius;
+    const y = (dy * scale) / radius;
+    const deadZone = .14;
+    const horizontal = Math.abs(x) < deadZone ? 0 : x;
+    const vertical = Math.abs(y) < deadZone ? 0 : y;
+    const magnitude = Math.min(1, Math.hypot(horizontal, vertical));
+    setJoystickPosition({ x, y });
+    press('left', horizontal < -deadZone);
+    press('right', horizontal > deadZone);
+    press('thrust', vertical < -deadZone);
+    controlsRef.current.reverse = vertical > deadZone;
+    controlsRef.current.turnPower = Math.min(1, Math.abs(horizontal) * 1.25);
+    controlsRef.current.thrustPower = vertical < -deadZone ? magnitude : 0;
+    controlsRef.current.reversePower = vertical > deadZone ? magnitude : 0;
+  };
+  const controlButton = (
+    label: string,
+    control: GameControl,
+    symbol: string,
+    className = '',
+  ) => (
     <button
       type="button"
       aria-label={label}
-      className="game-control"
+      aria-pressed={activeControls[control]}
+      className={`game-control ${activeControls[control] ? 'is-active' : ''} ${className}`.trim()}
+      draggable={false}
       onPointerDown={(event) => {
         event.preventDefault();
-        event.currentTarget.setPointerCapture(event.pointerId);
+        if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }
         press(control, true);
       }}
       onPointerUp={(event) => {
+        event.preventDefault();
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
           event.currentTarget.releasePointerCapture(event.pointerId);
         }
         press(control, false);
       }}
-      onPointerLeave={() => press(control, false)}
-      onPointerCancel={() => press(control, false)}
+      onPointerCancel={() => {
+        press(control, false);
+      }}
+      onLostPointerCapture={() => {
+        press(control, false);
+      }}
+      onContextMenu={(event) => event.preventDefault()}
+      onDragStart={(event) => event.preventDefault()}
+      onSelect={(event) => {
+        event.preventDefault();
+        window.getSelection()?.removeAllRanges();
+      }}
     >
       {symbol}
     </button>
   );
 
   return (
-    <div className="game-stage" role="dialog" aria-modal="true" aria-label="Thirty-second asteroid game">
+    <div className="game-stage" role="dialog" aria-modal="true" aria-label="Asteroid game">
       <canvas ref={canvasRef} className="game-canvas" />
       <div className="game-hud">
         <div className="game-score"><span>Score</span><strong>{score.toString().padStart(4, '0')}</strong></div>
-        <div className={seconds <= 5 ? 'game-timer is-urgent' : 'game-timer'}><span>Time</span><strong>{seconds}s</strong></div>
-        <div className="game-lives"><span>Lives</span><strong>{'●'.repeat(lives)}</strong></div>
+        <div className="game-level"><span>Level</span><strong>{level.toString().padStart(2, '0')}</strong></div>
+        <div className="game-lives"><span>Lives</span><LifeShips lives={lives} /></div>
+        {dualLaserSeconds > 0 && (
+          <div className="game-powerup" aria-label={`Triple laser active for ${dualLaserSeconds} seconds`}>
+            <span>Power-up</span><strong>TRIPLE ×3</strong><small>{dualLaserSeconds}s</small>
+          </div>
+        )}
         <button type="button" className="game-close" onClick={onExit} aria-label="Close game">×<span>Exit</span></button>
       </div>
-      {showHint && <div className="game-instructions label-mono">← / → rotate · ↑ thrust · space fire</div>}
+      {showHint && <div className="game-instructions label-mono">← / → rotate · ↑ / ↓ thrust · space fire</div>}
       <div className="game-controls" aria-label="Touch controls">
-        <div className="flex gap-3">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className={`game-desktop-back ${reverseActive ? 'is-active' : ''}`}
+            aria-label="Reverse thrust"
+            aria-pressed={reverseActive}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }
+              pressReverse(true);
+            }}
+            onPointerUp={(event) => {
+              event.preventDefault();
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+              pressReverse(false);
+            }}
+            onPointerCancel={() => pressReverse(false)}
+            onLostPointerCapture={() => pressReverse(false)}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            ↓ <span>Reverse</span>
+          </button>
           {controlButton('Rotate left', 'left', '↶')}
           {controlButton('Rotate right', 'right', '↷')}
         </div>
@@ -1012,6 +1414,65 @@ function AsteroidsGame({
           {controlButton('Thrust', 'thrust', '↑')}
           {controlButton('Fire', 'fire', '●')}
         </div>
+      </div>
+      <div className="game-controls-mobile" aria-label="Touch controls">
+        <div
+          ref={dpadRef}
+          className={`game-dpad ${controlsRef.current.reverse ? 'is-reversing' : ''}`}
+            role="slider"
+            aria-label="Virtual joystick: move thumb to rotate and thrust"
+            aria-roledescription="virtual joystick"
+            aria-valuemin={-100}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(-joystickPosition.y * 100)}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              dpadPointerIdRef.current = event.pointerId;
+              event.currentTarget.setPointerCapture(event.pointerId);
+              updateJoystickFromPointer(event);
+            }}
+            onPointerMove={(event) => {
+              if (dpadPointerIdRef.current === event.pointerId) {
+                event.preventDefault();
+                updateJoystickFromPointer(event);
+              }
+            }}
+            onPointerUp={(event) => {
+              event.preventDefault();
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+              dpadPointerIdRef.current = null;
+              clearJoystick();
+            }}
+            onPointerCancel={() => {
+              dpadPointerIdRef.current = null;
+              clearJoystick();
+            }}
+            onLostPointerCapture={() => {
+              dpadPointerIdRef.current = null;
+              clearJoystick();
+            }}
+            onContextMenu={(event) => event.preventDefault()}
+            onSelect={(event) => {
+              event.preventDefault();
+              window.getSelection()?.removeAllRanges();
+            }}
+          >
+            <span className="game-dpad-ring" aria-hidden="true" />
+            <span
+              className="game-joystick-knob"
+              style={{
+                transform: `translate(calc(-50% + ${joystickPosition.x * 2.55}rem), calc(-50% + ${joystickPosition.y * 2.55}rem))`,
+              }}
+              aria-hidden="true"
+            >
+              <span className="game-joystick-arrow">✦</span>
+            </span>
+            <span className="game-dpad-label game-dpad-label-top" aria-hidden="true">THRUST</span>
+            <span className="game-dpad-label game-dpad-label-bottom" aria-hidden="true">BRAKE</span>
+          </div>
+        {controlButton('Fire', 'fire', '●', 'game-fire-control')}
       </div>
     </div>
   );
@@ -1176,18 +1637,57 @@ export default function Home() {
   const [portraitFlipped, setPortraitFlipped] = useState(false);
   const scrollPositionRef = useRef(0);
   const portraitFlipTimerRef = useRef<number | undefined>(undefined);
+  const coinDropTimerRef = useRef<number | undefined>(undefined);
+  const coinDropAudioRef = useRef<HTMLAudioElement | null>(null);
+  const gameStartAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const rememberScrollPosition = () => {
     scrollPositionRef.current = window.scrollY;
   };
-  const beginFromIntro = () => setGameStage('playing');
+  const beginFromIntro = () => {
+    if (gameStage !== 'intro') return;
+    const coinDropAudio = canUseDesktopArcadeAudio() ? new Audio(`${BASE}arcade-coin-drop.mp3`) : null;
+    if (coinDropAudio) {
+      coinDropAudio.preload = 'auto';
+      coinDropAudio.volume = .5;
+      coinDropAudioRef.current = coinDropAudio;
+      void coinDropAudio.play().catch(() => {});
+    }
+    const gameStartAudio = canUseDesktopArcadeAudio() ? new Audio(`${BASE}arcade-game-start.mp3`) : null;
+    if (gameStartAudio) {
+      gameStartAudio.preload = 'auto';
+      gameStartAudio.volume = .5;
+      gameStartAudio.muted = true;
+      gameStartAudioRef.current = gameStartAudio;
+      void gameStartAudio.play().catch(() => {});
+    }
+    setGameStage('coin-drop');
+    window.clearTimeout(coinDropTimerRef.current);
+    coinDropTimerRef.current = window.setTimeout(() => {
+      if (gameStartAudio && gameStartAudioRef.current === gameStartAudio) {
+        gameStartAudio.currentTime = 0;
+        gameStartAudio.muted = false;
+      }
+      setGameStage('playing');
+    }, 720);
+  };
   const closeGameExperience = () => {
+    window.clearTimeout(coinDropTimerRef.current);
+    coinDropAudioRef.current?.pause();
+    if (coinDropAudioRef.current) coinDropAudioRef.current.currentTime = 0;
+    coinDropAudioRef.current = null;
+    gameStartAudioRef.current?.pause();
+    if (gameStartAudioRef.current) gameStartAudioRef.current.currentTime = 0;
+    gameStartAudioRef.current = null;
     setGameStage('closed');
     requestAnimationFrame(() => window.scrollTo(0, scrollPositionRef.current));
   };
   const handleGameOver = (score: number) => {
     setFinalScore(score);
     setGameStage('over');
+  };
+  const playAgain = () => {
+    setGameStage('playing');
   };
   const triggerPortraitGame = () => {
     setPortraitFlipped(true);
@@ -1201,6 +1701,13 @@ export default function Home() {
 
   useEffect(() => {
     return () => window.clearTimeout(portraitFlipTimerRef.current);
+  }, []);
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(coinDropTimerRef.current);
+      coinDropAudioRef.current?.pause();
+      gameStartAudioRef.current?.pause();
+    };
   }, []);
   useEffect(() => {
     if (gameStage === 'closed') return;
@@ -1254,7 +1761,7 @@ export default function Home() {
                   <img src={`${BASE}trey-photo.jpg`} alt="Trey Simmons" decoding="async" className="h-full w-full object-cover object-top" />
                 </span>
                 <span className="portrait-flip-face portrait-flip-back" aria-hidden="true">
-                  <img src={`${BASE}arcade-coin.png`} alt="" decoding="async" className="portrait-coin-image" />
+                  <img src={`${BASE}arcade-coin-silver.png`} alt="" decoding="async" className="portrait-coin-image" />
                 </span>
               </span>
               <span className="portrait-badge" aria-hidden="true">
@@ -1339,7 +1846,7 @@ export default function Home() {
                     />
                   </span>
                   <span className="portrait-flip-face portrait-flip-back" aria-hidden="true">
-                    <img src={`${BASE}arcade-coin.png`} alt="" decoding="async" className="portrait-coin-image" />
+                    <img src={`${BASE}arcade-coin-silver.png`} alt="" decoding="async" className="portrait-coin-image" />
                   </span>
                 </span>
               </button>
@@ -1568,27 +2075,35 @@ export default function Home() {
         </div>
       </footer>
 
-      {gameStage === 'intro' && (
+      {(gameStage === 'intro' || gameStage === 'coin-drop') && (
         <div className="portrait-intro-overlay" role="dialog" aria-modal="true" aria-label="Hidden game invitation">
           <button type="button" className="intro-dismiss" onClick={closeGameExperience} aria-label="Close game invitation">×</button>
-          <div className="portrait-intro-card">
+          <div className="portrait-intro-card" data-coin-dropping={gameStage === 'coin-drop' || undefined}>
             <div className="portrait-intro-image portrait-coin-large">
-              <img src={`${BASE}arcade-coin.png`} alt="" decoding="async" className="portrait-coin-image" />
+              <img src={`${BASE}arcade-coin-silver.png`} alt="" decoding="async" className="portrait-coin-image" />
             </div>
             <div className="relative z-10 px-7 pb-7 pt-5 text-center">
               <p className="label-mono text-lime">A tiny portfolio detour</p>
               <h2 className="display-xl mt-3 text-4xl text-paper">Ready?</h2>
-              <button type="button" onClick={beginFromIntro} className="portrait-play-button display-xl mt-6">
-                Play <span>→</span>
+              <button type="button" onClick={beginFromIntro} disabled={gameStage === 'coin-drop'} className="portrait-play-button display-xl mt-6">
+                {gameStage === 'coin-drop' ? 'Inserting…' : <>Play <span>→</span></>}
               </button>
-              <p className="label-mono mt-4 text-xs text-muted-foreground">Keys: ← → rotate · ↑ thrust · SPACE fire</p>
+              <p className={`portrait-credit-callout ${gameStage === 'coin-drop' ? 'is-inserting' : ''}`} aria-live="polite">
+                <span>PLAYER 1</span>
+                <b>·</b>
+                {gameStage === 'coin-drop' ? 'CREDIT IN' : 'READY'}
+              </p>
+              <p className="label-mono mt-4 text-xs text-muted-foreground">Keys: ← → rotate · ↑ ↓ thrust · SPACE fire</p>
             </div>
           </div>
         </div>
       )}
 
       {gameStage === 'playing' && (
-        <AsteroidsGame onExit={closeGameExperience} onGameOver={handleGameOver} />
+        <AsteroidsGame
+          onExit={closeGameExperience}
+          onGameOver={handleGameOver}
+        />
       )}
 
       {gameStage === 'over' && (
@@ -1596,13 +2111,14 @@ export default function Home() {
           <button type="button" className="intro-dismiss" onClick={closeGameExperience} aria-label="Close game">×</button>
           <div className="game-over-card score-card halftone">
             <div className="relative z-10 bg-ink/90 p-8 text-center">
-              <p className="display-xl text-5xl text-paper">Time.</p>
+              <p className="display-xl text-5xl text-paper">Game over.</p>
+              <p className="label-mono mt-3 text-lime">Ship lost in the field</p>
               <p className="label-mono mt-6 text-lime">Final score</p>
               <p className="display-xl mt-1 text-[clamp(4.5rem,18vw,8rem)] leading-none text-paper">
                 {finalScore.toString().padStart(4, '0')}
               </p>
               <div className="mt-8 flex flex-col gap-3">
-                <button type="button" onClick={() => setGameStage('playing')} className="portrait-play-button display-xl w-full justify-center">
+                <button type="button" onClick={playAgain} className="portrait-play-button display-xl w-full justify-center">
                   Play again
                 </button>
                 <button type="button" onClick={closeGameExperience} className="game-back-button display-xl w-full justify-center">
