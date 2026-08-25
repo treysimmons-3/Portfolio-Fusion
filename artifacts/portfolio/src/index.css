@@ -57,6 +57,15 @@
   }
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
+section[id],
+div[id="skills"] {
+  scroll-margin-top: 4.5rem;
+}
+
 /* ─── Lovable utility classes (lifted exactly) ─── */
 
 .label-mono {
@@ -64,6 +73,10 @@
   letter-spacing: .22em;
   text-transform: uppercase;
   font-size: .7rem;
+}
+.hero-body-name {
+  font-size: calc(1em - 1px);
+  font-weight: 700;
 }
 
 .display-xl {
@@ -121,6 +134,29 @@
 .btn-secondary:hover {
   border-color: var(--lime);
   color: var(--lime);
+}
+
+@media (min-width: 768px) {
+  .desktop-nav {
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 40;
+    min-height: 3.5rem;
+    padding-top: .75rem;
+    padding-bottom: .75rem;
+    background: rgba(8, 10, 18, .78);
+    backdrop-filter: blur(14px);
+  }
+  .desktop-nav > a:first-child {
+    padding: .4rem .65rem;
+    font-size: .72rem;
+  }
+  .desktop-nav .nav-cta {
+    color: var(--lime);
+    font-weight: 700;
+  }
 }
 
 /* Tri-color halftone pattern (cobalt / coral / lime dots) */
@@ -489,6 +525,141 @@
   flex-direction: column;
   align-items: center;
 }
+.arcade-leaderboard {
+  position: relative;
+  overflow: hidden;
+  padding: .85rem;
+  border: 1px solid color-mix(in oklab, var(--lime) 45%, transparent);
+  background:
+    linear-gradient(135deg, rgba(220,242,74,.1), transparent 42%),
+    rgba(220,242,74,.035);
+  box-shadow: inset 0 0 0 1px rgba(220,242,74,.06), 0 0 22px rgba(220,242,74,.08);
+}
+.arcade-leaderboard-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding-bottom: .65rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--lime) 35%, transparent);
+}
+.arcade-leaderboard-title {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  color: var(--lime);
+  font-size: .7rem;
+  font-weight: 800;
+  letter-spacing: .16em;
+}
+.arcade-trophy {
+  display: inline-grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border: 1px solid var(--lime);
+  color: var(--ink);
+  background: var(--lime);
+  font-size: .75rem;
+  line-height: 1;
+  transform: rotate(-8deg);
+}
+.arcade-leaderboard-mode {
+  padding: .28rem .42rem;
+  color: color-mix(in oklab, var(--paper) 62%, transparent);
+  font-size: .5rem;
+  letter-spacing: .1em;
+}
+.start-leaderboard-link {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  margin-top: 1rem;
+  margin-right: auto;
+  margin-left: auto;
+  border: 0;
+  color: color-mix(in oklab, var(--paper) 58%, transparent);
+  background: transparent;
+  cursor: pointer;
+  font-size: .58rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  transition: color .18s, transform .18s;
+}
+.start-leaderboard-link:hover {
+  color: var(--lime);
+  transform: translateY(-1px);
+}
+.start-leaderboard-link span {
+  color: var(--lime);
+  font-size: .8rem;
+}
+.arcade-leaderboard-start {
+  animation: portrait-reveal .28s ease both;
+}
+.arcade-score-list {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: .35rem;
+  margin-top: .65rem;
+}
+.arcade-score-row {
+  display: grid;
+  grid-template-columns: 1.8rem minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: .5rem;
+  min-height: 2rem;
+  padding: .35rem .45rem;
+  border-left: 2px solid color-mix(in oklab, var(--paper) 18%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--paper) 12%, transparent);
+  color: color-mix(in oklab, var(--paper) 78%, transparent);
+  font-family: var(--font-mono);
+  font-size: .68rem;
+  transition: transform .18s, background .18s;
+}
+.arcade-score-row:hover {
+  background: rgba(220,242,74,.08);
+  transform: translateX(3px);
+}
+.arcade-score-row.arcade-rank-1 {
+  border-left-color: var(--lime);
+  background: rgba(220,242,74,.12);
+  color: var(--paper);
+}
+.arcade-score-row.arcade-rank-2 { border-left-color: #c6d1dc; }
+.arcade-score-row.arcade-rank-3 { border-left-color: #c88a5a; }
+.arcade-rank {
+  color: color-mix(in oklab, var(--paper) 48%, transparent);
+  font-size: .58rem;
+  font-weight: 700;
+}
+.arcade-rank-1 .arcade-rank {
+  color: var(--lime);
+  font-size: .72rem;
+}
+.arcade-player {
+  overflow: hidden;
+  color: var(--paper);
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.arcade-entry-level {
+  color: color-mix(in oklab, var(--paper) 42%, transparent);
+  font-size: .55rem;
+}
+.arcade-score {
+  min-width: 3.8rem;
+  color: var(--lime);
+  font-size: .82rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-align: right;
+  text-shadow: 0 0 10px rgba(220,242,74,.5);
+}
 .portrait-intro-image {
   position: relative;
   height: 13rem;
@@ -720,6 +891,9 @@
   transform: translateX(-50%);
   white-space: nowrap;
 }
+.start-key-instructions {
+  display: block;
+}
 .game-controls {
   position: absolute;
   z-index: 3;
@@ -830,6 +1004,9 @@
     display: none;
   }
   .game-instructions {
+    display: none;
+  }
+  .start-key-instructions {
     display: none;
   }
   .game-powerup {
@@ -946,12 +1123,13 @@
   .game-fire-control {
     width: 4.5rem;
     height: 4.5rem;
-    border-color: color-mix(in oklab, var(--lime) 72%, transparent);
-    border-radius: 1.2rem;
-    background: color-mix(in oklab, var(--ink) 72%, var(--lime));
-    color: var(--paper);
+    border: 0;
+    border-radius: 50%;
+    background: var(--lime);
+    color: var(--ink);
     font-size: 1.9rem;
     pointer-events: auto;
+    box-shadow: 0 0 1.4rem rgba(220,242,74,.24);
   }
   .game-fire-control.is-active {
     transform: scale(.94);
@@ -1026,6 +1204,87 @@
   background: var(--lime);
 }
 
+/* Tools & AI grouped index */
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: .75rem;
+}
+.tool-group {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: .75rem;
+  background: var(--card);
+}
+.tool-group-heading {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  min-height: 2rem;
+  color: var(--paper);
+}
+.tool-group-heading .label-mono {
+  color: var(--lime);
+  font-size: calc(.75rem + 2px);
+}
+.record-card-label {
+  font-size: calc(.75rem + 2px);
+}
+.tool-group-icon {
+  display: block;
+  width: 2rem;
+  height: 2rem;
+  color: var(--lime);
+  fill: currentColor;
+}
+.tool-group-list {
+  display: grid;
+  gap: .24rem;
+  margin-top: .65rem;
+  padding-left: 2.1rem;
+  color: var(--muted-foreground);
+  font-family: var(--font-sans);
+  font-size: .82rem;
+  line-height: 1.25;
+}
+.tool-group-list li {
+  transition: color .18s, transform .18s;
+}
+.tool-group-list li:hover {
+  color: var(--lime);
+  transform: translateX(2px);
+}
+
+@media (max-width: 900px) {
+  .tools-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .75rem;
+  }
+}
+@media (max-width: 560px) {
+  .tools-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: .75rem;
+  }
+  .tool-group-heading {
+    gap: .4rem;
+  }
+  .tool-group-icon {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+  .tool-group-heading .label-mono {
+    font-size: calc(.75rem + 2px);
+  }
+  .tool-group-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: .75rem;
+    padding-left: 2.15rem;
+    font-size: .75rem;
+  }
+}
+
 @keyframes count-up {
   from { opacity: 0; transform: translateY(24px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -1039,8 +1298,8 @@
 }
 
 @keyframes drift {
-  0%, to { transform: scale(1.1) translate(0); }
-  50%    { transform: scale(1.18) translate(-2.5%, -2.5%); }
+  0%, to { transform: scale(1.06) translate(0); }
+  50%    { transform: scale(1.1) translate(-1.5%, -1.5%); }
 }
 
 @keyframes marquee {

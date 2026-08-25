@@ -9,6 +9,11 @@ import {
   mdiGamepadVariant,
   mdiRocketLaunch,
   mdiTrophy,
+  mdiPalette,
+  mdiMovieOpen,
+  mdiHammerWrench,
+  mdiRobot,
+  mdiLightningBolt,
 } from '@mdi/js';
 
 // ── Assets ───────────────────────────────────────────────────────────────────
@@ -51,15 +56,90 @@ const stats = [
   { value: '22%',  label: 'Trial Lift from UX Testing' },
 ];
 
-const toolkit = [
-  // Design & build
-  'Adobe Creative Suite', 'Figma', 'Framer', 'Webflow', 'Lottie',
-  // AI-assisted dev
-  'Replit', 'Cursor', 'v0', 'Lovable',
-  // AI models
-  'Claude', 'ChatGPT', 'Gemini', 'Midjourney', 'Runway',
-  // Dev & measurement
-  'GitHub', 'Google Analytics 4', 'VWO / Optimizely', 'Website Optimization', 'Miro',
+type ScoreEntry = {
+  id?: string;
+  name: string;
+  score: number;
+  level: number;
+  created_at?: string;
+};
+
+const LOCAL_SCORE_KEY = 'trey-arcade-high-scores';
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(/\/$/, '');
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+const readLocalScores = (): ScoreEntry[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const value = JSON.parse(window.localStorage.getItem(LOCAL_SCORE_KEY) || '[]');
+    return Array.isArray(value) ? value.slice(0, 10) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveLocalScore = (entry: ScoreEntry) => {
+  if (typeof window === 'undefined') return;
+  const scores = [...readLocalScores(), entry]
+    .sort((a, b) => b.score - a.score || b.level - a.level)
+    .slice(0, 10);
+  window.localStorage.setItem(LOCAL_SCORE_KEY, JSON.stringify(scores));
+};
+
+const fetchLeaderboard = async (): Promise<ScoreEntry[]> => {
+  if (!supabaseUrl || !supabaseAnonKey) return readLocalScores();
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/arcade_scores?select=id,name,score,level,created_at&order=score.desc,level.desc&limit=10`,
+    { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` } },
+  );
+  if (!response.ok) throw new Error('Leaderboard unavailable');
+  return response.json() as Promise<ScoreEntry[]>;
+};
+
+const submitLeaderboardScore = async (entry: ScoreEntry): Promise<ScoreEntry[]> => {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    saveLocalScore(entry);
+    return readLocalScores();
+  }
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/submit_arcade_score`, {
+    method: 'POST',
+    headers: {
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${supabaseAnonKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ player_name: entry.name, player_score: entry.score, player_level: entry.level }),
+  });
+  if (!response.ok) throw new Error('Score submission failed');
+  return fetchLeaderboard();
+};
+
+const toolGroups = [
+  {
+    iconPath: 'm352-522 86-87-56-57-44 44-56-56 43-44-45-45-87 87 159 158Zm328 329 87-87-45-45-44 43-56-56 43-44-57-56-86 86 158 159Zm24-567 57 57-57-57ZM290-120H120v-170l175-175L80-680l200-200 216 216 151-152q12-12 27-18t31-6q16 0 31 6t27 18l53 54q12 12 18 27t6 31q0 16-6 30.5T816-647L665-495l215 215L680-80 465-295 290-120Zm-90-80h56l392-391-57-57-391 392v56Zm420-419-29-29 57 57-28-28Z',
+    label: 'Design',
+    tools: ['Adobe Creative Suite', 'Figma', 'InDesign', 'Miro'],
+  },
+  {
+    iconPath: 'M360-80q-58 0-109-22t-89-60q-38-38-60-89T80-360q0-81 42-148t110-102q20-39 49.5-68.5T350-728q33-68 101-110t149-42q58 0 109 22t89 60q38 38 60 89t22 109q0 85-42 150T728-350q-20 39-49.5 68.5T610-232q-35 68-102 110T360-80Zm0-80q33 0 63.5-10t56.5-30q-58 0-109-22t-89-60q-38-38-60-89t-22-109q-20 26-30 56.5T160-360q0 42 16 78t43 63q27 27 63 43t78 16Zm120-120q33 0 64.5-10t57.5-30q-59 0-110-22.5T403-403q-38-38-60.5-89T320-602q-20 26-30 57.5T280-480q0 42 15.5 78t43.5 63q27 28 63 43.5t78 15.5Zm120-120q18 0 34.5-3t33.5-9q22-60 6.5-115.5T621-621q-38-38-93.5-53.5T412-668q-6 17-9 33.5t-3 34.5q0 42 15.5 78t43.5 63q27 28 63 43.5t78 15.5Zm160-78q20-26 30-57.5t10-64.5q0-42-15.5-78T741-741q-27-28-63-43.5T600-800q-35 0-65.5 10T478-760q59 0 110 22.5t89 60.5q38 38 60.5 89T760-478ZM600-600Z',
+    label: 'Motion / Video',
+    tools: ['Framer', 'Lottie', 'Premiere Pro', 'After Effects', 'Runway'],
+  },
+  {
+    iconPath: 'M739-83.5q-7-2.5-13-8.5L522-296q-6-6-8.5-13t-2.5-15q0-8 2.5-15t8.5-13l85-85q6-6 13-8.5t15-2.5q8 0 15 2.5t13 8.5l204 204q6 6 8.5 13t2.5 15q0 8-2.5 15t-8.5 13l-85 85q-6 6-13 8.5T754-81q-8 0-15-2.5Zm15-92.5 29-29-147-147-29 29 147 147ZM189.5-83q-7.5-3-13.5-9l-84-84q-6-6-9-13.5T80-205q0-8 3-15t9-13l212-212h85l34-34-165-165h-57L80-765l113-113 121 121v57l165 165 116-116-43-43 56-56H495l-28-28 142-142 28 28v113l56-56 142 142q17 17 26 38.5t9 45.5q0 24-9 46t-26 39l-85-85-56 56-42-42-207 207v84L233-92q-6 6-13 9t-15 3q-8 0-15.5-3Zm15.5-93 170-170v-29h-29L176-205l29 29Zm0 0-29-29 15 14 14 15Zm549 0 29-29-29 29Z',
+    label: 'Build',
+    tools: ['Webflow', 'Replit', 'v0', 'GitHub', 'Supabase', 'SQL', 'REST APIs'],
+  },
+  {
+    iconPath: 'M160-360q-50 0-85-35t-35-85q0-50 35-85t85-35v-80q0-33 23.5-56.5T240-760h120q0-50 35-85t85-35q50 0 85 35t35 85h120q33 0 56.5 23.5T800-680v80q50 0 85 35t35 85q0 50-35 85t-85 35v160q0 33-23.5 56.5T720-120H240q-33 0-56.5-23.5T160-200v-160Zm242.5-97.5Q420-475 420-500t-17.5-42.5Q385-560 360-560t-42.5 17.5Q300-525 300-500t17.5 42.5Q335-440 360-440t42.5-17.5Zm240 0Q660-475 660-500t-17.5-42.5Q625-560 600-560t-42.5 17.5Q540-525 540-500t17.5 42.5Q575-440 600-440t42.5-17.5ZM320-280h320v-80H320v80Zm-80 80h480v-480H240v480Zm240-240Z',
+    label: 'AI',
+    tools: ['ChatGPT', 'Claude', 'Gemini', 'Midjourney', 'Lovable', 'Cursor'],
+  },
+  {
+    iconPath: 'm520-120 40-280H319l321-440h40l-40 280h241L560-120h-40ZM120-240v-80h348l-12 80H120ZM80-440v-80h228l-58 80H80Zm80-200v-80h294l-58 80H160Z',
+    label: 'Optimization',
+    tools: ['Google Analytics 4', 'VWO / Optimizely', 'Website Optimization'],
+  },
 ];
 
 const projects = [
@@ -443,7 +523,7 @@ function AsteroidsGame({
   onGameOver,
 }: {
   onExit: () => void;
-  onGameOver: (score: number) => void;
+  onGameOver: (score: number, level: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   type GameControl = 'left' | 'right' | 'thrust' | 'fire';
@@ -493,7 +573,10 @@ function AsteroidsGame({
     let width = window.innerWidth;
     let height = window.innerHeight;
     let lowPower = Math.min(width, height) < 640;
-    let contentScale = lowPower ? Math.max(.24, Math.min(.34, Math.min(width, height) / 1560)) : 1;
+    const mobileGameScale = 0.5;
+    const mobileAsteroidScale = 1.5;
+    let contentScale = lowPower ? mobileGameScale : 1;
+    let asteroidScale = lowPower ? mobileAsteroidScale : 1;
     let raf = 0;
     let last = performance.now();
     let lastFrameAt = 0;
@@ -657,9 +740,9 @@ function AsteroidsGame({
     };
     const asteroid = (size: AsteroidSize = 'large', origin?: { x: number; y: number }, velocity?: { x: number; y: number }): Asteroid => {
       const specs = {
-        large: { r: 62 * contentScale, hits: 3, speed: 28, points: 100 },
-        medium: { r: 38 * contentScale, hits: 2, speed: 48, points: 200 },
-        small: { r: 17 * contentScale, hits: 1, speed: 74, points: 300 },
+        large: { r: 62 * contentScale * asteroidScale, hits: 3, speed: 28, points: 100 },
+        medium: { r: 38 * contentScale * asteroidScale, hits: 2, speed: 48, points: 200 },
+        small: { r: 17 * contentScale * asteroidScale, hits: 1, speed: 74, points: 300 },
       }[size];
       const edge = Math.floor(Math.random() * 4);
       const r = specs.r * (.88 + Math.random() * .2);
@@ -695,7 +778,8 @@ function AsteroidsGame({
       width = window.innerWidth;
       height = window.innerHeight;
       lowPower = Math.min(width, height) < 640;
-      contentScale = lowPower ? Math.max(.24, Math.min(.34, Math.min(width, height) / 1560)) : 1;
+      contentScale = lowPower ? mobileGameScale : 1;
+      asteroidScale = lowPower ? mobileAsteroidScale : 1;
       const ratio = Math.min(window.devicePixelRatio || 1, lowPower ? 1 : 2);
       canvas.width = Math.floor(width * ratio);
       canvas.height = Math.floor(height * ratio);
@@ -754,6 +838,11 @@ function AsteroidsGame({
       ctx.save();
       ctx.translate(item.x, item.y);
       ctx.rotate(item.angle);
+      if (item.flashUntil > now) {
+        ctx.shadowColor = '#f6f5eb';
+        ctx.shadowBlur = lowPower ? 0 : 18;
+        ctx.globalAlpha = Math.min(1, .55 + (item.flashUntil - now) / 220);
+      }
       if (dissolveProgress > 0) {
         ctx.scale(1 + dissolveProgress * .28, 1 + dissolveProgress * .28);
         ctx.globalAlpha = 1 - dissolveProgress;
@@ -902,6 +991,20 @@ function AsteroidsGame({
       }
       ctx.globalAlpha = 1;
       ctx.restore();
+      if (now < levelTransitionUntil) {
+        const progress = (levelTransitionUntil - now) / 750;
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, progress * 1.5);
+        ctx.fillStyle = '#dcf24a';
+        ctx.shadowColor = '#dcf24a';
+        ctx.shadowBlur = lowPower ? 0 : 18;
+        ctx.textAlign = 'center';
+        ctx.font = '800 28px "Bricolage Grotesque", sans-serif';
+        ctx.fillText(`LEVEL ${String(levelValue).padStart(2, '0')}`, width / 2, height * .44);
+        ctx.font = '500 10px "DM Mono", monospace';
+        ctx.fillText('WAVE CLEARED · INCOMING', width / 2, height * .44 + 24);
+        ctx.restore();
+      }
       asteroids.forEach(drawAsteroid);
       if (ufo) drawUfo(ufo);
       blastWaves.forEach((wave) => {
@@ -1207,7 +1310,7 @@ function AsteroidsGame({
           ship.vy = 0;
           if (livesValue <= 0) {
             running = false;
-            gameOverTimer = window.setTimeout(() => onGameOverRef.current(scoreValue), 500);
+            gameOverTimer = window.setTimeout(() => onGameOverRef.current(scoreValue, levelValue), 500);
           }
         }
       }
@@ -1634,6 +1737,13 @@ export default function Home() {
   const [resumeExpanded, setResumeExpanded] = useState(false);
   const [gameStage, setGameStage] = useState<GameStage>('closed');
   const [finalScore, setFinalScore] = useState(0);
+  const [finalLevel, setFinalLevel] = useState(1);
+  const [scoreName, setScoreName] = useState('');
+  const [leaderboard, setLeaderboard] = useState<ScoreEntry[]>([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardError, setLeaderboardError] = useState('');
+  const [scoreSubmitted, setScoreSubmitted] = useState(false);
+  const [startLeaderboardOpen, setStartLeaderboardOpen] = useState(false);
   const [portraitFlipped, setPortraitFlipped] = useState(false);
   const scrollPositionRef = useRef(0);
   const portraitFlipTimerRef = useRef<number | undefined>(undefined);
@@ -1682,12 +1792,41 @@ export default function Home() {
     setGameStage('closed');
     requestAnimationFrame(() => window.scrollTo(0, scrollPositionRef.current));
   };
-  const handleGameOver = (score: number) => {
+  const handleGameOver = (score: number, level: number) => {
     setFinalScore(score);
+    setFinalLevel(level);
+    setScoreName('');
+    setScoreSubmitted(false);
     setGameStage('over');
   };
   const playAgain = () => {
     setGameStage('playing');
+  };
+  useEffect(() => {
+    if (gameStage !== 'over' && !(gameStage === 'intro' && startLeaderboardOpen)) return;
+    let active = true;
+    setLeaderboardLoading(true);
+    setLeaderboardError('');
+    void fetchLeaderboard()
+      .then((scores) => { if (active) setLeaderboard(scores); })
+      .catch(() => { if (active) setLeaderboardError('Leaderboard unavailable right now.'); })
+      .finally(() => { if (active) setLeaderboardLoading(false); });
+    return () => { active = false; };
+  }, [gameStage, startLeaderboardOpen]);
+  const submitScore = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = (scoreName.trim() || 'ACE').slice(0, 16);
+    setLeaderboardLoading(true);
+    setLeaderboardError('');
+    try {
+      const scores = await submitLeaderboardScore({ name, score: finalScore, level: finalLevel });
+      setLeaderboard(scores);
+      setScoreSubmitted(true);
+    } catch {
+      setLeaderboardError('Could not save your score. Try again.');
+    } finally {
+      setLeaderboardLoading(false);
+    }
   };
   const triggerPortraitGame = () => {
     setPortraitFlipped(true);
@@ -1735,7 +1874,7 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="overflow-x-hidden">
+    <main id="top" className="overflow-x-clip">
 
       {/* ── HERO ── */}
       <section className="relative border-b-2 border-paper">
@@ -1777,17 +1916,19 @@ export default function Home() {
         </nav>
 
         {/* Nav */}
-        <nav className="relative z-10 hidden md:flex flex-wrap items-center justify-between gap-4 px-6 py-6 md:px-12">
-          <span className="label-mono bg-lime px-3 py-2 text-ink">TREY SIMMONS</span>
+        <nav className="desktop-nav relative z-10 hidden md:flex flex-wrap items-center justify-between gap-4 px-6 py-6 md:px-12">
+          <a href="#top" className="label-mono font-bold text-lime">TREY SIMMONS</a>
           <div className="flex flex-wrap items-center gap-6">
-            <a href="#work"    className="label-mono hover:text-lime transition-colors">Work</a>
+            <a href="#work"    className="label-mono hover:text-lime transition-colors">Recent Builds</a>
+            <a href="#brand"   className="label-mono hover:text-lime transition-colors">Branding</a>
             <a href="#resume"  className="label-mono hover:text-lime transition-colors">Resume</a>
-            <a href="#contact" className="label-mono hover:text-lime transition-colors">Let's Build</a>
+            <a href="#skills"  className="label-mono hover:text-lime transition-colors">Skills</a>
+            <a href="#contact" className="nav-cta label-mono">Let's Build</a>
           </div>
         </nav>
 
         {/* Hero copy */}
-        <div className="relative z-10 mx-auto max-w-7xl px-6 pb-20 pt-6 md:px-12 md:pt-12">
+        <div className="relative z-10 mx-auto max-w-7xl px-6 pb-20 pt-6 md:px-12 md:pt-24">
 
           {/* Two-col: text left, portrait right */}
           <div className="grid items-start gap-8 md:grid-cols-[1fr_340px] xl:grid-cols-[1fr_380px]">
@@ -1811,7 +1952,7 @@ export default function Home() {
               </h1>
 
               <p className="rise mt-8 max-w-2xl text-lg leading-relaxed text-muted-foreground md:text-xl font-sans" style={{ animationDelay: '480ms' }}>
-                I'm Trey Simmons — a Senior Creative Director with 30 years across art direction, brand and UX,
+                I'm <strong className="hero-body-name">Trey Simmons</strong> — a Senior Creative Director with 30 years across art direction, brand and UX,
                 now pointed at AI-powered building. With Replit, v0, ChatGPT, Gemini and more, I take ideas
                 from concept to working, tested, beautiful products — quizzes, calculators, games, leaderboards,
                 admin consoles and the brand systems that wrap them.
@@ -2016,19 +2157,27 @@ export default function Home() {
           </div>
 
           {/* Toolkit strip */}
-          <div className="mt-16 border-t border-border pt-10">
-            <span className="label-mono text-muted-foreground">Tools &amp; AI</span>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {toolkit.map(tool => (
-                <span key={tool} className="label-mono rounded-full border border-border px-4 py-1.5 text-muted-foreground hover:border-lime hover:text-lime transition-colors cursor-default">
-                  {tool}
-                </span>
+          <div id="skills" className="mt-16 pt-10">
+            <span className="label-mono text-lime">Skills</span>
+            <div className="tools-grid mt-6">
+              {toolGroups.map(group => (
+                <div key={group.label} className="tool-group">
+                  <div className="tool-group-heading">
+                    <svg className="tool-group-icon shrink-0" viewBox="0 -960 960 960" aria-hidden="true">
+                      <path d={group.iconPath} />
+                    </svg>
+                    <span className="label-mono">{group.label}</span>
+                  </div>
+                  <ul className="tool-group-list">
+                    {group.tools.map(tool => <li key={tool}>{tool}</li>)}
+                  </ul>
+                </div>
               ))}
             </div>
           </div>
 
           {/* Also on the record */}
-          <div className="mt-16 border-t border-border pt-10">
+          <div className="mt-16 pt-10">
             <span className="label-mono text-lime">Also on the record</span>
             <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {[
@@ -2042,7 +2191,7 @@ export default function Home() {
                 <div key={item.label} className="flex gap-3 rounded-xl border border-border bg-card p-4">
                   <MdiIcon path={item.icon} size={1.1} className="shrink-0 mt-0.5 text-lime" color="currentColor" />
                   <div>
-                    <div className="label-mono text-lime text-xs">{item.label}</div>
+                    <div className="record-card-label label-mono text-lime text-xs">{item.label}</div>
                     <p className="font-sans mt-1 text-sm leading-snug text-muted-foreground">{item.detail}</p>
                   </div>
                 </div>
@@ -2084,16 +2233,41 @@ export default function Home() {
             </div>
             <div className="relative z-10 px-7 pb-7 pt-5 text-center">
               <p className="label-mono text-lime">A tiny portfolio detour</p>
-              <h2 className="display-xl mt-3 text-4xl text-paper">Ready?</h2>
-              <button type="button" onClick={beginFromIntro} disabled={gameStage === 'coin-drop'} className="portrait-play-button display-xl mt-6">
+              <h2 className="display-xl mt-3 text-4xl text-paper">Ready Player 1?</h2>
+              <button type="button" onClick={beginFromIntro} disabled={gameStage === 'coin-drop'} className="display-xl btn-primary mt-6">
                 {gameStage === 'coin-drop' ? 'Inserting…' : <>Play <span>→</span></>}
               </button>
-              <p className={`portrait-credit-callout ${gameStage === 'coin-drop' ? 'is-inserting' : ''}`} aria-live="polite">
-                <span>PLAYER 1</span>
-                <b>·</b>
-                {gameStage === 'coin-drop' ? 'CREDIT IN' : 'READY'}
-              </p>
-              <p className="label-mono mt-4 text-xs text-muted-foreground">Keys: ← → rotate · ↑ ↓ thrust · SPACE fire</p>
+              <button
+                type="button"
+                className="start-leaderboard-link label-mono"
+                onClick={() => setStartLeaderboardOpen((open) => !open)}
+                aria-expanded={startLeaderboardOpen}
+              >
+                {startLeaderboardOpen ? 'Hide leaderboard' : 'View leaderboard'} <span>↗</span>
+              </button>
+              {startLeaderboardOpen && (
+                <div className="arcade-leaderboard arcade-leaderboard-start mt-4 w-full text-left">
+                  <div className="arcade-leaderboard-heading">
+                    <p className="label-mono arcade-leaderboard-title"><span className="arcade-trophy">★</span> Leaderboard</p>
+                    <span className="label-mono arcade-leaderboard-mode">{supabaseUrl ? 'GLOBAL SCORES' : 'LOCAL SCORES'}</span>
+                  </div>
+                  {leaderboardLoading && leaderboard.length === 0 && <p className="label-mono mt-3 text-muted-foreground">Loading scores…</p>}
+                  {!leaderboardLoading && leaderboard.length === 0 && <p className="label-mono mt-3 text-muted-foreground">No scores yet.</p>}
+                  {leaderboard.length > 0 && (
+                    <ol className="arcade-score-list">
+                      {leaderboard.map((entry, index) => (
+                        <li key={entry.id || `${entry.name}-${entry.score}-${index}`} className={`arcade-score-row ${index < 3 ? `arcade-rank-${index + 1}` : ''}`}>
+                          <span className="arcade-rank">{String(index + 1).padStart(2, '0')}</span>
+                          <span className="arcade-player">{entry.name}</span>
+                          <span className="arcade-entry-level">L{entry.level}</span>
+                          <span className="arcade-score">{entry.score.toString().padStart(4, '0')}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              )}
+              <p className="start-key-instructions label-mono mt-4 text-xs text-muted-foreground">Keys: ← → rotate · ↑ ↓ thrust · SPACE fire</p>
             </div>
           </div>
         </div>
@@ -2117,7 +2291,49 @@ export default function Home() {
               <p className="display-xl mt-1 text-[clamp(4.5rem,18vw,8rem)] leading-none text-paper">
                 {finalScore.toString().padStart(4, '0')}
               </p>
-              <div className="mt-8 flex flex-col gap-3">
+              <p className="label-mono mt-3 text-muted-foreground">Level {String(finalLevel).padStart(2, '0')} reached</p>
+              {!scoreSubmitted && (
+                <form onSubmit={submitScore} className="mt-6 flex w-full flex-col gap-2">
+                  <label htmlFor="arcade-score-name" className="label-mono text-left text-muted-foreground">Enter your initials</label>
+                  <div className="flex gap-2">
+                    <input
+                      id="arcade-score-name"
+                      value={scoreName}
+                      onChange={(event) => setScoreName(event.target.value.toUpperCase().replace(/[^A-Z0-9 _-]/g, '').slice(0, 16))}
+                      placeholder="ACE"
+                      maxLength={16}
+                      autoComplete="nickname"
+                      className="min-w-0 flex-1 border border-border bg-card px-3 py-2 font-mono text-paper outline-none focus:border-lime"
+                    />
+                    <button type="submit" disabled={leaderboardLoading} className="game-back-button display-xl px-4">
+                      {leaderboardLoading ? 'Saving…' : 'Submit'}
+                    </button>
+                  </div>
+                </form>
+              )}
+              {scoreSubmitted && <p className="label-mono mt-4 text-lime">Score logged.</p>}
+              {leaderboardError && <p className="label-mono mt-3 text-red-400">{leaderboardError}</p>}
+              <div className="arcade-leaderboard mt-6 w-full text-left">
+                <div className="arcade-leaderboard-heading">
+                  <p className="label-mono arcade-leaderboard-title"><span className="arcade-trophy">★</span> Leaderboard</p>
+                  <span className="label-mono arcade-leaderboard-mode">{supabaseUrl ? 'GLOBAL SCORES' : 'LOCAL SCORES'}</span>
+                </div>
+                {leaderboardLoading && leaderboard.length === 0 && <p className="label-mono mt-3 text-muted-foreground">Loading scores…</p>}
+                {!leaderboardLoading && leaderboard.length === 0 && <p className="label-mono mt-3 text-muted-foreground">No scores yet.</p>}
+                {leaderboard.length > 0 && (
+                  <ol className="arcade-score-list">
+                    {leaderboard.map((entry, index) => (
+                      <li key={entry.id || `${entry.name}-${entry.score}-${index}`} className={`arcade-score-row ${index < 3 ? `arcade-rank-${index + 1}` : ''}`}>
+                        <span className="arcade-rank">{String(index + 1).padStart(2, '0')}</span>
+                        <span className="arcade-player">{entry.name}</span>
+                        <span className="arcade-entry-level">L{entry.level}</span>
+                        <span className="arcade-score">{entry.score.toString().padStart(4, '0')}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+              <div className="mt-8 flex w-full flex-col gap-3">
                 <button type="button" onClick={playAgain} className="portrait-play-button display-xl w-full justify-center">
                   Play again
                 </button>
