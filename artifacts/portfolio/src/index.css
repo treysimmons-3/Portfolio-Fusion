@@ -78,6 +78,43 @@ div[id="skills"] {
   font-size: calc(1em - 1px);
   font-weight: 700;
 }
+.hero-arcade-prompt {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: .5rem;
+  margin-top: 1.15rem;
+  color: color-mix(in oklab, var(--paper) 68%, transparent);
+  font-size: .68rem;
+  letter-spacing: .14em;
+  line-height: 1.1;
+  text-align: center;
+  text-transform: uppercase;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-5px);
+  transition: opacity .28s ease, transform .28s cubic-bezier(.2,.8,.2,1);
+}
+.hero-arcade-prompt-icon {
+  width: 1.35rem;
+  height: 1.35rem;
+  flex: 0 0 auto;
+  fill: var(--lime);
+}
+.hero-arcade-prompt-copy {
+  display: flex;
+  flex-direction: column;
+  gap: .28rem;
+}
+.desktop-game-portrait:hover + .hero-arcade-prompt,
+.desktop-game-portrait:focus-visible + .hero-arcade-prompt {
+  opacity: 1;
+  transform: translateY(0);
+}
+.hero-arcade-prompt strong {
+  color: var(--lime);
+  font-weight: 800;
+}
 
 .display-xl {
   font-family: var(--font-heading);
@@ -146,7 +183,7 @@ div[id="skills"] {
     min-height: 3.5rem;
     padding-top: .75rem;
     padding-bottom: .75rem;
-    background: rgba(8, 10, 18, .78);
+    background: rgba(8, 10, 18, .39);
     backdrop-filter: blur(14px);
   }
   .desktop-nav > a:first-child {
@@ -387,6 +424,7 @@ div[id="skills"] {
 /* ─── Portrait game Easter egg ─── */
 .portrait-trigger {
   perspective: 800px;
+  cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 .portrait-trigger:focus-visible,
@@ -417,6 +455,7 @@ div[id="skills"] {
 .desktop-game-portrait {
   perspective: 1000px;
   isolation: isolate;
+  cursor: pointer;
   transition: transform .24s cubic-bezier(.2,.8,.2,1), box-shadow .24s ease;
 }
 .desktop-game-portrait:hover {
@@ -488,7 +527,8 @@ div[id="skills"] {
   font-size: clamp(1rem, 2.5vw, 1.6rem);
 }
 .portrait-intro-overlay,
-.game-over-screen {
+.game-over-screen,
+.arcade-loading-screen {
   position: fixed;
   inset: 0;
   z-index: 70;
@@ -514,6 +554,57 @@ div[id="skills"] {
 }
 .game-over-card {
   animation: portrait-reveal .42s cubic-bezier(.2,.8,.2,1) both;
+}
+.arcade-loading-screen {
+  z-index: 90;
+  overflow: hidden;
+  border: 0;
+  backdrop-filter: none;
+  background:
+    radial-gradient(circle at center, rgba(220,242,74,.1), transparent 24%),
+    rgba(3,5,12,.22);
+  pointer-events: none;
+}
+.arcade-loading-art {
+  display: block;
+  width: min(88vw, 56rem);
+  max-height: 82vh;
+  object-fit: contain;
+  filter: none;
+  animation: arcade-loading-warp 3s cubic-bezier(.16,.8,.18,1) both;
+}
+.arcade-loading-caption {
+  position: absolute;
+  bottom: 12vh;
+  left: 50%;
+  width: min(90vw, 32rem);
+  text-align: center;
+  transform: translateX(-50%);
+  animation: arcade-loading-caption 3s ease both;
+}
+.arcade-loading-title {
+  margin-top: .45rem;
+  color: var(--paper);
+  font-size: clamp(1.7rem, 6vw, 2.4rem);
+}
+.arcade-loading-copy {
+  margin-top: .8rem;
+  color: color-mix(in oklab, var(--paper) 55%, transparent);
+  font-size: .58rem;
+}
+.arcade-loading-bar {
+  height: .3rem;
+  margin: 1rem auto 0;
+  overflow: hidden;
+  background: rgba(246,245,235,.16);
+}
+.arcade-loading-bar span {
+  display: block;
+  width: 42%;
+  height: 100%;
+  background: var(--lime);
+  box-shadow: 0 0 .8rem rgba(220,242,74,.85);
+  animation: arcade-loading-progress 1.25s cubic-bezier(.2,.8,.2,1) both;
 }
 .score-card {
   border: 0;
@@ -552,17 +643,34 @@ div[id="skills"] {
   font-weight: 800;
   letter-spacing: .16em;
 }
-.arcade-trophy {
+.arcade-resume-icon {
   display: inline-grid;
   place-items: center;
   width: 1.35rem;
   height: 1.35rem;
-  border: 1px solid var(--lime);
-  color: var(--ink);
-  background: var(--lime);
-  font-size: .75rem;
+  background: transparent;
   line-height: 1;
-  transform: rotate(-8deg);
+}
+.arcade-resume-icon rect:first-child { fill: var(--lime); }
+.arcade-resume-icon rect:nth-child(2),
+.arcade-resume-icon path {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-linecap: square;
+}
+.arcade-medal-icon {
+  width: 1.35rem;
+  height: 1.35rem;
+  fill: var(--lime);
+  flex: 0 0 auto;
+}
+.game-over-card {
+  width: min(100%, 28rem);
+}
+.game-over-score {
+  font-size: clamp(3.5rem, 15vw, 7rem);
+  overflow-wrap: anywhere;
 }
 .arcade-leaderboard-mode {
   padding: .28rem .42rem;
@@ -961,6 +1069,15 @@ div[id="skills"] {
   -webkit-tap-highlight-color: transparent;
   transition: transform .12s ease, background .12s, color .12s, border-color .12s, box-shadow .12s;
 }
+.game-turn-symbol {
+  width: 1.7rem;
+  height: 2.4rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .game-control:active,
 .game-control.is-active {
   transform: scale(.9);
@@ -1155,6 +1272,21 @@ div[id="skills"] {
   42%, 72% { opacity: 1; text-shadow: 0 0 .8rem rgba(220,242,74,.85); }
   100% { opacity: .9; text-shadow: none; }
 }
+@keyframes arcade-loading-progress {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(255%); }
+}
+@keyframes arcade-loading-warp {
+  0% { opacity: 0; transform: scale(.12) rotate(0); filter: blur(18px); }
+  10% { opacity: 1; transform: scale(.82) rotate(0); filter: blur(0); }
+  16.67%, 83.33% { opacity: 1; transform: scale(1.04) rotate(0); filter: blur(0); }
+  100% { opacity: 0; transform: scale(1.7) rotate(0); filter: blur(15px); }
+}
+@keyframes arcade-loading-caption {
+  0%, 12.5% { opacity: 0; transform: translate(-50%, 1rem); }
+  16.67%, 83.33% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -.5rem); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .portrait-intro-card,
@@ -1165,10 +1297,18 @@ div[id="skills"] {
     transition-duration: .01ms;
   }
   .portrait-intro-card[data-coin-dropping="true"] .portrait-coin-image,
-  .portrait-credit-callout.is-inserting {
+  .portrait-credit-callout.is-inserting,
+  .arcade-loading-art,
+  .arcade-loading-caption,
+  .arcade-loading-bar span {
     animation-duration: .01ms;
   }
   .drift-slow { animation: none; }
+}
+@media (max-width: 420px) {
+  .game-over-card { width: min(100%, 23rem); }
+  .game-over-card > div { padding: 1.2rem; }
+  .game-over-score { font-size: clamp(3rem, 17vw, 5rem); }
 }
 
 /* Color utility shims (Tailwind doesn't know these tokens) */

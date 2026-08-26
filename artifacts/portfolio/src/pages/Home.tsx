@@ -36,6 +36,7 @@ import projectRoiVideo    from '@assets/images/projects/roi-calculator.mp4';
 import projectQuiz        from '@assets/images/projects/quiz.jpg';
 import projectQuizVideo   from '@assets/images/projects/quiz.mp4';
 import projectShipFaster  from '@assets/images/projects/ship-faster.png';
+import starbreakerLogo    from '@assets/starbreaker-logo_1787704094669.png';
 // robotLottie loaded lazily in CardMedia via IntersectionObserver
 
 import brandTerrain       from '@assets/images/brand/terrain.jpg';
@@ -148,7 +149,7 @@ const projects = [
     num: '01',
     category: 'Booth Game · Gartner Engagement Zone',
     title: 'Master Data Quest',
-    desc: 'One of six original arcade games designed and built for the Gartner Data & Analytics conference. Players race a robot down a starlit track, dodging duplicate records.',
+    desc: 'Owned the creative for this Gartner booth activation: booth design, game design, swag, and all event marketing visuals.',
     tags: ['Endless runner', 'Gartner Engagement Zone', '4 years running'],
     img: projectMasterData,
     video: projectMasterDataVideo,
@@ -172,7 +173,7 @@ const projects = [
     num: '03',
     category: 'Interactive Tool',
     title: 'ROI Value Calculator',
-    desc: 'Turns "trust me" into a number leadership believes. An interactive value calculator that quantifies the cost of bad data.',
+    desc: 'Co-created with Tamr’s Director of Product Marketing, this interactive value calculator turns “trust me” into measurable ROI by quantifying the business impact of bad data.',
     tags: ['Multi-variable inputs', 'Personalized $ report'],
     img: projectRoi,
     video: projectRoiVideo,
@@ -498,7 +499,7 @@ function StatCol({ value, label, delay, active }: {
 }
 
 // ── 30-second portrait Easter egg ────────────────────────────────────────────
-type GameStage = 'closed' | 'intro' | 'coin-drop' | 'playing' | 'over';
+type GameStage = 'closed' | 'intro' | 'coin-drop' | 'loading' | 'playing' | 'over';
 
 function LifeShips({ lives }: { lives: number }) {
   return (
@@ -993,6 +994,7 @@ function AsteroidsGame({
       ctx.restore();
       if (now < levelTransitionUntil) {
         const progress = (levelTransitionUntil - now) / 750;
+        const warpProgress = 1 - progress;
         ctx.save();
         ctx.globalAlpha = Math.min(1, progress * 1.5);
         ctx.fillStyle = '#dcf24a';
@@ -1003,6 +1005,24 @@ function AsteroidsGame({
         ctx.fillText(`LEVEL ${String(levelValue).padStart(2, '0')}`, width / 2, height * .44);
         ctx.font = '500 10px "DM Mono", monospace';
         ctx.fillText('WAVE CLEARED · INCOMING', width / 2, height * .44 + 24);
+        ctx.restore();
+        ctx.save();
+        ctx.translate(width / 2, height / 2);
+        ctx.globalAlpha = Math.min(.72, (1 - Math.abs(warpProgress - .5) * 2) * .72);
+        ctx.strokeStyle = '#dcf24a';
+        ctx.shadowColor = '#dcf24a';
+        ctx.shadowBlur = lowPower ? 0 : 12;
+        ctx.lineWidth = lowPower ? 1 : 2;
+        const rayCount = lowPower ? 18 : 42;
+        for (let ray = 0; ray < rayCount; ray += 1) {
+          const angle = (ray / rayCount) * Math.PI * 2;
+          const inner = Math.max(6, warpProgress * Math.min(width, height) * .06);
+          const outer = inner + warpProgress * Math.max(width, height) * .52;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+          ctx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
+          ctx.stroke();
+        }
         ctx.restore();
       }
       asteroids.forEach(drawAsteroid);
@@ -1378,7 +1398,7 @@ function AsteroidsGame({
       window.removeEventListener('resize', resize);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
-      void audioContext?.close();
+      if (audioContext) void audioContext.close().catch(() => {});
     };
   }, []);
 
@@ -1428,7 +1448,7 @@ function AsteroidsGame({
   const controlButton = (
     label: string,
     control: GameControl,
-    symbol: string,
+    symbol: React.ReactNode,
     className = '',
   ) => (
     <button
@@ -1439,22 +1459,22 @@ function AsteroidsGame({
       draggable={false}
       onPointerDown={(event) => {
         event.preventDefault();
-        if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }
         press(control, true);
       }}
       onPointerUp={(event) => {
         event.preventDefault();
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }
         press(control, false);
+      }}
+      onPointerLeave={() => {
+        press(control, false);
+      }}
+      onClick={() => {
+        if (control === 'left' || control === 'right') {
+          press(control, true);
+          window.setTimeout(() => press(control, false), 140);
+        }
       }}
       onPointerCancel={() => {
-        press(control, false);
-      }}
-      onLostPointerCapture={() => {
         press(control, false);
       }}
       onContextMenu={(event) => event.preventDefault()}
@@ -1510,8 +1530,8 @@ function AsteroidsGame({
           >
             ↓ <span>Reverse</span>
           </button>
-          {controlButton('Rotate left', 'left', '↶')}
-          {controlButton('Rotate right', 'right', '↷')}
+          {controlButton('Rotate left', 'left', <svg className="game-turn-symbol" viewBox="0 0 32 44" aria-hidden="true"><path d="M22 40V13c0-5-3-8-8-8S6 8 6 13v7m0 0-5-5m5 5 5-5" /></svg>)}
+          {controlButton('Rotate right', 'right', <svg className="game-turn-symbol" viewBox="0 0 32 44" aria-hidden="true"><path d="M10 40V13c0-5 3-8 8-8s8 3 8 8v7m0 0 5-5m-5 5-5-5" /></svg>)}
         </div>
         <div className="flex gap-3">
           {controlButton('Thrust', 'thrust', '↑')}
@@ -1748,11 +1768,19 @@ export default function Home() {
   const scrollPositionRef = useRef(0);
   const portraitFlipTimerRef = useRef<number | undefined>(undefined);
   const coinDropTimerRef = useRef<number | undefined>(undefined);
+  const loadingTimerRef = useRef<number | undefined>(undefined);
   const coinDropAudioRef = useRef<HTMLAudioElement | null>(null);
   const gameStartAudioRef = useRef<HTMLAudioElement | null>(null);
+  const gameOverAudioContextRef = useRef<AudioContext | null>(null);
+  const gameOverOscillatorsRef = useRef<OscillatorNode[]>([]);
 
   const rememberScrollPosition = () => {
     scrollPositionRef.current = window.scrollY;
+  };
+  const startLoadingSequence = () => {
+    setGameStage('loading');
+    window.clearTimeout(loadingTimerRef.current);
+    loadingTimerRef.current = window.setTimeout(() => setGameStage('playing'), 3000);
   };
   const beginFromIntro = () => {
     if (gameStage !== 'intro') return;
@@ -1771,6 +1799,14 @@ export default function Home() {
       gameStartAudioRef.current = gameStartAudio;
       void gameStartAudio.play().catch(() => {});
     }
+    if (canUseDesktopArcadeAudio() && !gameOverAudioContextRef.current) {
+      try {
+        gameOverAudioContextRef.current = new AudioContext();
+        void gameOverAudioContextRef.current.resume().catch(() => {});
+      } catch {
+        gameOverAudioContextRef.current = null;
+      }
+    }
     setGameStage('coin-drop');
     window.clearTimeout(coinDropTimerRef.current);
     coinDropTimerRef.current = window.setTimeout(() => {
@@ -1778,17 +1814,26 @@ export default function Home() {
         gameStartAudio.currentTime = 0;
         gameStartAudio.muted = false;
       }
-      setGameStage('playing');
+      startLoadingSequence();
     }, 720);
   };
   const closeGameExperience = () => {
     window.clearTimeout(coinDropTimerRef.current);
+    window.clearTimeout(loadingTimerRef.current);
     coinDropAudioRef.current?.pause();
     if (coinDropAudioRef.current) coinDropAudioRef.current.currentTime = 0;
     coinDropAudioRef.current = null;
     gameStartAudioRef.current?.pause();
     if (gameStartAudioRef.current) gameStartAudioRef.current.currentTime = 0;
     gameStartAudioRef.current = null;
+    gameOverOscillatorsRef.current.forEach((oscillator) => {
+      try { oscillator.stop(); } catch { /* already stopped */ }
+    });
+    gameOverOscillatorsRef.current = [];
+    if (gameOverAudioContextRef.current) {
+      void gameOverAudioContextRef.current.close().catch(() => {});
+    }
+    gameOverAudioContextRef.current = null;
     setGameStage('closed');
     requestAnimationFrame(() => window.scrollTo(0, scrollPositionRef.current));
   };
@@ -1800,8 +1845,49 @@ export default function Home() {
     setGameStage('over');
   };
   const playAgain = () => {
-    setGameStage('playing');
+    if (gameStartAudioRef.current && canUseDesktopArcadeAudio()) {
+      gameStartAudioRef.current.currentTime = 0;
+      gameStartAudioRef.current.muted = false;
+      void gameStartAudioRef.current.play().catch(() => {});
+    }
+    startLoadingSequence();
   };
+  useEffect(() => {
+    if (gameStage !== 'over' || !canUseDesktopArcadeAudio()) return;
+    const audioContext = gameOverAudioContextRef.current;
+    if (!audioContext) return;
+    const oscillators: OscillatorNode[] = [];
+    const gains: GainNode[] = [];
+    try {
+      void audioContext.resume().catch(() => {});
+      const start = audioContext.currentTime + .06;
+      const notes = [196, 247, 294, 392, 294, 247, 147, 196];
+      notes.forEach((frequency, index) => {
+        const oscillator = audioContext!.createOscillator();
+        const gain = audioContext!.createGain();
+        const at = start + index * .22;
+        oscillator.type = index % 2 ? 'triangle' : 'square';
+        oscillator.frequency.setValueAtTime(frequency, at);
+        oscillator.frequency.exponentialRampToValueAtTime(frequency * .72, at + .19);
+        gain.gain.setValueAtTime(.0001, at);
+        gain.gain.exponentialRampToValueAtTime(.11, at + .025);
+        gain.gain.exponentialRampToValueAtTime(.0001, at + .2);
+        oscillator.connect(gain);
+        gain.connect(audioContext!.destination);
+        oscillator.start(at);
+        oscillator.stop(at + .22);
+        oscillators.push(oscillator);
+        gains.push(gain);
+      });
+      gameOverOscillatorsRef.current = oscillators;
+    } catch {
+      gameOverOscillatorsRef.current = [];
+    }
+    return () => {
+      oscillators.forEach((oscillator) => { try { oscillator.stop(); } catch { /* already stopped */ } });
+      gains.forEach((gain) => gain.disconnect());
+    };
+  }, [gameStage]);
   useEffect(() => {
     if (gameStage !== 'over' && !(gameStage === 'intro' && startLeaderboardOpen)) return;
     let active = true;
@@ -1844,8 +1930,15 @@ export default function Home() {
   useEffect(() => {
     return () => {
       window.clearTimeout(coinDropTimerRef.current);
+      window.clearTimeout(loadingTimerRef.current);
       coinDropAudioRef.current?.pause();
       gameStartAudioRef.current?.pause();
+      gameOverOscillatorsRef.current.forEach((oscillator) => {
+        try { oscillator.stop(); } catch { /* already stopped */ }
+      });
+      if (gameOverAudioContextRef.current) {
+        void gameOverAudioContextRef.current.close().catch(() => {});
+      }
     };
   }, []);
   useEffect(() => {
@@ -1877,7 +1970,7 @@ export default function Home() {
     <main id="top" className="overflow-x-clip">
 
       {/* ── HERO ── */}
-      <section className="relative border-b-2 border-paper">
+      <section className="relative">
 
         {/* Background */}
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -1922,7 +2015,6 @@ export default function Home() {
             <a href="#work"    className="label-mono hover:text-lime transition-colors">Recent Builds</a>
             <a href="#brand"   className="label-mono hover:text-lime transition-colors">Branding</a>
             <a href="#resume"  className="label-mono hover:text-lime transition-colors">Resume</a>
-            <a href="#skills"  className="label-mono hover:text-lime transition-colors">Skills</a>
             <a href="#contact" className="nav-cta label-mono">Let's Build</a>
           </div>
         </nav>
@@ -1952,10 +2044,8 @@ export default function Home() {
               </h1>
 
               <p className="rise mt-8 max-w-2xl text-lg leading-relaxed text-muted-foreground md:text-xl font-sans" style={{ animationDelay: '480ms' }}>
-                I'm <strong className="hero-body-name">Trey Simmons</strong> — a Senior Creative Director with 30 years across art direction, brand and UX,
-                now pointed at AI-powered building. With Replit, v0, ChatGPT, Gemini and more, I take ideas
-                from concept to working, tested, beautiful products — quizzes, calculators, games, leaderboards,
-                admin consoles and the brand systems that wrap them.
+                I’m <strong className="hero-body-name">Trey Simmons</strong> — a Senior Creative Director with 30 years across brand, UX, digital product, and growth.
+                Today I pair that experience with AI-native development tools to take ideas from strategy to working product — designing, prototyping, testing, and shipping experiences that drive real business outcomes.
               </p>
 
               <div className="rise mt-10 flex flex-wrap items-center gap-4" style={{ animationDelay: '600ms' }}>
@@ -1969,7 +2059,7 @@ export default function Home() {
             </div>
 
             {/* Portrait circle — desktop only, top-aligned with h1 */}
-            <figure className="hidden md:flex md:justify-center shrink-0 md:mt-[12px]">
+            <figure className="hidden md:flex md:flex-col md:items-center md:justify-center shrink-0 md:mt-[12px]">
               <button
                 type="button"
                 onClick={triggerPortraitGame}
@@ -1991,6 +2081,13 @@ export default function Home() {
                   </span>
                 </span>
               </button>
+              <figcaption className="hero-arcade-prompt label-mono" aria-label="Play Starbreaker">
+                <svg className="hero-arcade-prompt-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true"><path d="M189-160q-60 0-102.5-43T42-307q0-9 1-18t3-18l84-336q14-54 57-87.5t98-33.5h390q55 0 98 33.5t57 87.5l84 336q2 9 3.5 18.5T919-306q0 61-43.5 103.5T771-160q-42 0-78-22t-54-60l-28-58q-5-10-15-15t-21-5H385q-11 0-21 5t-15 15l-28 58q-18 38-54 60t-78 22Zm2.66-60q24.34 0 45.01-12.97Q257.33-245.95 268-268l28-57q13-26 36.5-40.5T385-380h190q29 0 52.5 15t37.5 40l28 57q10.67 22.05 31.33 35.03Q745-220 769.26-220 805-220 831-244.5t27-60.5q0-4-3-24l-84-335q-8-33-34.4-54.5T675-740H285q-34.7 0-61.35 21T189-664l-84 335q-1 4-3 23 0 36.48 26.26 61.24Q154.52-220 191.66-220ZM561.5-538.68q8.5-8.67 8.5-21.5 0-12.82-8.68-21.32-8.67-8.5-21.5-8.5-12.82 0-21.32 8.68-8.5 8.67-8.5 21.5 0 12.82 8.68 21.32 8.67 8.5 21.5 8.5 12.82 0 21.32-8.68Zm80-80q8.5-8.67 8.5-21.5 0-12.82-8.68-21.32-8.67-8.5-21.5-8.5-12.82 0-21.32 8.68-8.5 8.67 8.68 21.32 8.67 8.5 21.5 8.5 12.82 0 21.32-8.68Zm0 160q8.5-8.67 8.5-21.5 0-12.82-8.68-21.32-8.67-8.5-21.5-8.5-12.82 0-21.32 8.68-8.5 8.67 8.68 21.32 8.67 8.5 21.5 8.5 12.82 0 21.32-8.68Zm80-80q8.5-8.67 8.5-21.5 0-12.82-8.68-21.32-8.67-8.5-21.5-8.5-12.82 0-21.32 8.68-8.5 8.67-8.5 21.5 0 12.82 8.68 21.32 8.67 8.5 21.5 8.5 12.82 0 21.32-8.68ZM358-472.08q7-7.09 7-17.92v-45h45q10.83 0 17.92-7.12 7.08-7.11 7.08-18 0-10.88-7.08-17.88-7.09-7-17.92-7h-45v-45q0-10.83-7.12-17.92-7.11-7.08-18-7.08-10.88 0-17.88 7.08-7 7.09-7 17.92v45h-45q-10.83 0-17.92 7.12-7.08 7.11-7.08 18 0 10.88 7.08 17.88 7.09 7 17.92 7h45v45q0 10.83 7.12 17.92 7.11 7.08 18 7.08 10.88 0 17.88-7.08ZM480-480Z" /></svg>
+                <span className="hero-arcade-prompt-copy">
+                  <span>Need a break?</span>
+                  <strong>Play Starbreaker.</strong>
+                </span>
+              </figcaption>
             </figure>
           </div>
 
@@ -2248,7 +2345,7 @@ export default function Home() {
               {startLeaderboardOpen && (
                 <div className="arcade-leaderboard arcade-leaderboard-start mt-4 w-full text-left">
                   <div className="arcade-leaderboard-heading">
-                    <p className="label-mono arcade-leaderboard-title"><span className="arcade-trophy">★</span> Leaderboard</p>
+                    <p className="label-mono arcade-leaderboard-title"><svg className="arcade-resume-icon" viewBox="0 0 24 24" aria-hidden="true"><g transform="rotate(-8 12 12)"><rect x="4" y="2" width="16" height="20" /><rect x="8" y="5" width="8" height="14" /><path d="M10 9h4M10 12h4M10 15h3" /></g></svg> Leaderboard</p>
                     <span className="label-mono arcade-leaderboard-mode">{supabaseUrl ? 'GLOBAL SCORES' : 'LOCAL SCORES'}</span>
                   </div>
                   {leaderboardLoading && leaderboard.length === 0 && <p className="label-mono mt-3 text-muted-foreground">Loading scores…</p>}
@@ -2273,7 +2370,18 @@ export default function Home() {
         </div>
       )}
 
-      {gameStage === 'playing' && (
+      {gameStage === 'loading' && (
+        <div className="arcade-loading-screen" role="status" aria-live="polite" aria-label="Loading Starbreaker">
+          <img className="arcade-loading-art" src={starbreakerLogo} alt="Starbreaker" decoding="async" />
+          <div className="arcade-loading-caption">
+            <p className="label-mono text-lime">STARBREAKER SYSTEMS</p>
+            <p className="display-xl arcade-loading-title">Loading mission</p>
+            <p className="label-mono arcade-loading-copy">Calibrating thrusters · Stand by</p>
+          </div>
+        </div>
+      )}
+
+      {(gameStage === 'loading' || gameStage === 'playing') && (
         <AsteroidsGame
           onExit={closeGameExperience}
           onGameOver={handleGameOver}
@@ -2288,7 +2396,7 @@ export default function Home() {
               <p className="display-xl text-5xl text-paper">Game over.</p>
               <p className="label-mono mt-3 text-lime">Ship lost in the field</p>
               <p className="label-mono mt-6 text-lime">Final score</p>
-              <p className="display-xl mt-1 text-[clamp(4.5rem,18vw,8rem)] leading-none text-paper">
+              <p className="display-xl game-over-score mt-1 leading-none text-paper">
                 {finalScore.toString().padStart(4, '0')}
               </p>
               <p className="label-mono mt-3 text-muted-foreground">Level {String(finalLevel).padStart(2, '0')} reached</p>
@@ -2315,7 +2423,7 @@ export default function Home() {
               {leaderboardError && <p className="label-mono mt-3 text-red-400">{leaderboardError}</p>}
               <div className="arcade-leaderboard mt-6 w-full text-left">
                 <div className="arcade-leaderboard-heading">
-                  <p className="label-mono arcade-leaderboard-title"><span className="arcade-trophy">★</span> Leaderboard</p>
+                  <p className="label-mono arcade-leaderboard-title"><svg className="arcade-medal-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true"><path d="M621.5-198.26q58.5-58.27 58.5-141.5 0-83.24-58.26-141.74-58.27-58.5-141.5-58.5-83.24 0-141.74 58.26-58.5 58.27-58.5 141.5 0 83.24 58.26 141.74 58.27 58.5 141.5 58.5 83.24 0 141.74-58.26ZM346-563q28-17 60-26.5t67-10.5L363-820H217l129 257Zm268 0 129-257H597l-83 167 30 60q19 5 36.5 12.5T614-563ZM273-183q-25-33-39-72.5T220-340q0-45 14-84.5t39-72.5q-57 10-95 53.5T140-340q0 60 38 103.5t95 53.5Zm414 0q57-10 95-53.5T820-340q0-60-38-103.5T687-497q25 33 39 72.5t14 84.5q0 45-14 84.5T687-183ZM403.5-91.5Q367-103 336-123q-9 2-18 2.5t-19 .5q-91 0-155-64T80-339q0-87 58-149t143-69L120-880h280l80 160 80-160h280L680-559q85 8 142.5 70T880-340q0 92-64 156t-156 64q-9 0-18.5-.5T623-123q-31 20-67 31.5T480-80q-40 0-76.5-11.5ZM480-340ZM346-563 217-820l129 257Zm268 0 129-257-129 257ZM406-230l28-91-74-53h91l29-96 29 96h91l-74 53 28 91-74-56-74 56Z" /></svg> Leaderboard</p>
                   <span className="label-mono arcade-leaderboard-mode">{supabaseUrl ? 'GLOBAL SCORES' : 'LOCAL SCORES'}</span>
                 </div>
                 {leaderboardLoading && leaderboard.length === 0 && <p className="label-mono mt-3 text-muted-foreground">Loading scores…</p>}
