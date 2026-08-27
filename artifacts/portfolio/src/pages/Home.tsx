@@ -880,7 +880,7 @@ function AsteroidsGame({
       if (key === ' ' || key === 'Enter') controlsRef.current.fire = value;
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { onExitRef.current(); return; }
+      if (event.key === 'Escape' || event.key === 'x' || event.key === 'X') { onExitRef.current(); return; }
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'Enter', 'a', 'A', 'd', 'D', 'w', 'W', 's', 'S'].includes(event.key)) {
         event.preventDefault();
         setControl(event.key, true);
@@ -1565,7 +1565,7 @@ function AsteroidsGame({
         )}
         <button type="button" className="game-close" onClick={onExit} aria-label="Close game">×<span>Exit</span></button>
       </div>
-      {showHint && <div className="game-instructions label-mono">← / → rotate · ↑ / ↓ thrust · space fire</div>}
+      {showHint && <div className="game-instructions label-mono">← / → rotate · ↑ / ↓ thrust · space fire · X exit</div>}
       <div className="game-controls" aria-label="Touch controls">
         <div className="flex items-center gap-3">
           <button
@@ -2464,13 +2464,21 @@ export default function Home() {
           <button type="button" className="intro-dismiss" onClick={closeGameExperience} aria-label="Close game invitation">×</button>
           <div className="portrait-intro-card" data-coin-dropping={gameStage === 'coin-drop' || undefined}>
             <div className="portrait-intro-image portrait-coin-large">
-              <img src={`${BASE}arcade-coin-silver.png`} alt="" decoding="async" className="portrait-coin-image" />
+              <div className="portrait-slot-scene" aria-hidden="true">
+                <img src={`${BASE}arcade-coin-slot-full-transparent.png`} alt="" decoding="async" className="portrait-slot-full" />
+                <div className="portrait-slot-layers">
+                  <img src={`${BASE}arcade-coin-slot-bottom.png`} alt="" decoding="async" className="portrait-slot-bottom" />
+                  <div className="portrait-slot-coin-layer">
+                    <img src={`${BASE}arcade-coin-silver.png`} alt="" decoding="async" className="portrait-slot-coin" />
+                  </div>
+                  <img src={`${BASE}arcade-coin-slot-top.jpg`} alt="" decoding="async" className="portrait-slot-top" />
+                </div>
+              </div>
             </div>
-            <div className="relative z-10 px-7 pb-7 pt-5 text-center">
-              <p className="label-mono text-lime">A tiny portfolio detour</p>
-              <h2 className="display-xl mt-3 text-4xl text-paper">Ready Player 1?</h2>
+            <div className="relative z-10 px-7 pb-9 pt-7 text-center">
+              <p className="label-mono text-lime">Portfolio detour</p>
               <button type="button" onClick={beginFromIntro} disabled={gameStage === 'coin-drop'} className="display-xl btn-primary mt-6">
-                {gameStage === 'coin-drop' ? 'Inserting…' : <>Play <span>→</span></>}
+                {gameStage === 'coin-drop' ? 'Inserting…' : <>READY <span>&gt;</span></>}
               </button>
               <button
                 type="button"
@@ -2502,7 +2510,23 @@ export default function Home() {
                   )}
                 </div>
               )}
-              <p className="start-key-instructions label-mono mt-4 text-xs text-muted-foreground">Keys: ← → rotate · ↑ ↓ thrust · SPACE fire</p>
+              <div className="start-key-instructions label-mono mt-4 text-xs text-muted-foreground" aria-label="Keyboard controls">
+                <span className="start-key-title">Keys:</span>
+                <div className="start-key-list" role="list">
+                  <span className="start-key-row" role="listitem">
+                    <span className="start-key-action">Rotate</span>
+                    <span className="start-key-keys">Arrow Left / Right</span>
+                  </span>
+                  <span className="start-key-row" role="listitem">
+                    <span className="start-key-action">Thrust</span>
+                    <span className="start-key-keys">Arrow Up / Down</span>
+                  </span>
+                  <span className="start-key-row" role="listitem">
+                    <span className="start-key-action">Fire</span>
+                    <span className="start-key-keys">Space</span>
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
