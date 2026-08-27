@@ -509,7 +509,7 @@ function StatCol({ value, label, delay, active }: {
 }) {
   const displayed = useCountUp(value, active, delay);
   return (
-    <div style={{ animation: active ? `count-up 0.6s ${delay}ms cubic-bezier(.2,.8,.2,1) both` : 'none' }}>
+    <div className="hero-stat" style={{ animation: active ? `count-up 0.6s ${delay}ms cubic-bezier(.2,.8,.2,1) both` : 'none' }}>
       <div className="display-xl text-4xl text-lime md:text-5xl">{active ? displayed : '–'}</div>
       <div className="label-mono mt-2 whitespace-pre-line text-muted-foreground">{label}</div>
     </div>
@@ -2104,13 +2104,13 @@ export default function Home() {
 
               <h1 className="display-xl mt-6 text-[clamp(3.2rem,7.5vw,7rem)]" aria-label="Design it. Code it. Ship it.">
                 <span className="rise hero-ideas block text-paper" style={{ animationDelay: '120ms' }}>
-                  Design it<span className="hero-period" aria-hidden="true" />
+                  Design it.
                 </span>
                 <span className="rise block text-paper" style={{ animationDelay: '240ms' }}>
-                  Code it<span className="hero-period" aria-hidden="true" />
+                  Code it.
                 </span>
                 <span className="rise block text-paper" style={{ animationDelay: '360ms' }}>
-                  <span className="real-word">Ship it<span className="hero-period" aria-hidden="true" /></span>
+                  <span className="real-word">Ship it.</span>
                 </span>
               </h1>
 
@@ -2438,7 +2438,7 @@ export default function Home() {
           <div className="mx-auto max-w-5xl text-center">
             <h2 className="display-xl text-[clamp(2.8rem,10vw,8rem)]">
               Got an idea
-              <span className="block text-lime">worth vibing on?</span>
+              <span className="block text-lime">worth vibing?</span>
             </h2>
             <p className="font-sans mx-auto mt-8 max-w-2xl text-lg text-muted-foreground">
               Interactive campaigns, product prototypes, internal tools, weird one-off

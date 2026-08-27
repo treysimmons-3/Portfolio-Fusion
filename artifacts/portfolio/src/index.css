@@ -568,18 +568,22 @@ div[id="skills"] {
   line-height: inherit;
 }
 
-.hero-period {
-  display: inline-block;
-  width: .13em;
-  height: .13em;
-  margin-left: .1em;
-  border-radius: 50%;
-  background: currentColor;
-  transform: translateY(-.04em);
-}
-
 .hero-ideas {
   margin-left: 0;
+}
+
+.hero-stat {
+  position: relative;
+  padding-left: 1.25rem;
+}
+.hero-stat::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: color-mix(in oklab, var(--paper) 28%, transparent);
+  content: '';
 }
 
 /* ─── Portrait game Easter egg ─── */
