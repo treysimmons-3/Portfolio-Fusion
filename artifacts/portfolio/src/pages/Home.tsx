@@ -51,10 +51,28 @@ import brandBridgeBuilder from '@assets/images/brand/bridge-builder.webp';
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 const stats = [
-  { value: '30+',  label: 'Years Directing Creative' },
-  { value: '2M',   label: 'Monthly Uniques Grown from 0' },
-  { value: '$10M', label: 'Pipeline from ABM Design' },
-  { value: '22%',  label: 'Trial Lift from UX Testing' },
+  { value: '30+',  label: 'Years Directing\nCreative' },
+  { value: '2M',   label: 'Monthly Uniques\nGrown from 0' },
+  { value: '$10M', label: 'Pipeline from\nABM Design' },
+  { value: '22%',  label: 'Trial Lift from\nUX Testing' },
+];
+
+const testimonials = [
+  {
+    name: 'Don Mikell',
+    role: 'Independent Consultant | Product Innovation & Development',
+    quote: 'Trey is a true renaissance man… a practical perfectionist that will ‘do what it takes’ to get the best solution on budget and on time.',
+  },
+  {
+    name: 'Kevin Corcoran',
+    role: 'Retired Brand Marketing & Creative',
+    quote: 'Trey is extremely creative and quick… and always brings great ideas and results in a fast time frame.',
+  },
+  {
+    name: 'JJ Lee',
+    role: 'Product Design @ Amenities Health',
+    quote: 'Trey’s vision for developing the brand and the role of design in a company is amazing.',
+  },
 ];
 
 type ScoreEntry = {
@@ -493,7 +511,7 @@ function StatCol({ value, label, delay, active }: {
   return (
     <div style={{ animation: active ? `count-up 0.6s ${delay}ms cubic-bezier(.2,.8,.2,1) both` : 'none' }}>
       <div className="display-xl text-4xl text-lime md:text-5xl">{active ? displayed : '–'}</div>
-      <div className="label-mono mt-2 text-muted-foreground">{label}</div>
+      <div className="label-mono mt-2 whitespace-pre-line text-muted-foreground">{label}</div>
     </div>
   );
 }
@@ -611,6 +629,8 @@ function AsteroidsGame({
     let gameOverTimer: number | undefined;
     const desktopAudio = canUseDesktopArcadeAudio();
     let audioContext: AudioContext | null = null;
+    let ufoSoundSource: AudioBufferSourceNode | null = null;
+    let ufoSoundGain: GainNode | null = null;
     const audioBuffers = new Map<string, AudioBuffer>();
     const startedAt = performance.now();
     const ship = { x: width / 2, y: height / 2, vx: 0, vy: 0, angle: -Math.PI / 2 };
@@ -699,6 +719,26 @@ function AsteroidsGame({
       gain.connect(audioContext.destination);
       source.start();
     };
+    const stopUfoSound = (fadeSeconds = .1) => {
+      const source = ufoSoundSource;
+      const gain = ufoSoundGain;
+      ufoSoundSource = null;
+      ufoSoundGain = null;
+      if (!source) return;
+      try {
+        if (audioContext && gain) {
+          const stopAt = audioContext.currentTime + fadeSeconds;
+          gain.gain.cancelScheduledValues(audioContext.currentTime);
+          gain.gain.setValueAtTime(gain.gain.value, audioContext.currentTime);
+          gain.gain.linearRampToValueAtTime(0, stopAt);
+          source.stop(stopAt);
+        } else {
+          source.stop();
+        }
+      } catch {
+        // The source may already have ended during game cleanup.
+      }
+    };
     const loadDesktopAudio = async () => {
       if (!desktopAudio) return;
       wakeAudio();
@@ -734,7 +774,28 @@ function AsteroidsGame({
     };
     const playUfoHitSound = () => playClip('saucerSmall', .32, 1.08);
     const playShipDeathSound = () => playClip('bangLarge', .38, .78);
-    const playUfoArrivalSound = (small: boolean) => playClip(small ? 'saucerSmall' : 'saucerBig', .24);
+    const startUfoSound = (small: boolean) => {
+      if (!desktopAudio) return false;
+      wakeAudio();
+      const buffer = audioBuffers.get(small ? 'saucerSmall' : 'saucerBig');
+      if (!audioContext || !buffer || audioContext.state !== 'running') return false;
+      stopUfoSound(.02);
+      const source = audioContext.createBufferSource();
+      const gain = audioContext.createGain();
+      const now = audioContext.currentTime;
+      source.buffer = buffer;
+      source.loop = true;
+      source.loopStart = 0;
+      source.loopEnd = buffer.duration;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(.2, now + .08);
+      source.connect(gain);
+      gain.connect(audioContext.destination);
+      source.start();
+      ufoSoundSource = source;
+      ufoSoundGain = gain;
+      return true;
+    };
     const playBeat = () => {
       playClip(beatIndex % 2 === 0 ? 'beat1' : 'beat2', .25);
       beatIndex += 1;
@@ -1163,8 +1224,7 @@ function AsteroidsGame({
           + Math.sin(ufo.phase) * ufo.amplitude
           + Math.sin(ufo.phase * .45 + 1.2) * 12;
         if (!ufo.soundPlayed && ufo.x > 0) {
-          ufo.soundPlayed = true;
-          playUfoArrivalSound(ufo.sizeScale < .82);
+          ufo.soundPlayed = startUfoSound(ufo.sizeScale < .82) || !desktopAudio;
         }
         if (levelValue > 1 && ufo.shotCooldown <= 0) {
           const shotAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
@@ -1179,6 +1239,7 @@ function AsteroidsGame({
           playClip('fire', .16, .72);
         }
         if (ufo.x > width + 64 * ufo.sizeScale) {
+          stopUfoSound();
           ufo = null;
           ufoSpawned = true;
         }
@@ -1263,6 +1324,7 @@ function AsteroidsGame({
             }
             bullets.splice(bulletIndex, 1);
             playUfoHitSound();
+            stopUfoSound(.04);
             ufo = null;
             ufoSpawned = true;
             dualLaserUntil = now + 10000;
@@ -1398,6 +1460,7 @@ function AsteroidsGame({
       window.removeEventListener('resize', resize);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      stopUfoSound(.04);
       if (audioContext) void audioContext.close().catch(() => {});
     };
   }, []);
@@ -1725,7 +1788,7 @@ function Lightbox({ index, items, onClose, onNav }: {
         </div>
 
         {/* Footer: title + prev/next */}
-        <div className="flex items-center justify-between gap-4 p-6 border-t-2 border-border">
+        <div className="flex items-center justify-between gap-4 p-6">
           <div>
             <h3 className="display-xl text-2xl">{item.title}</h3>
             <p className="label-mono mt-2 text-muted-foreground">{item.desc}</p>
@@ -1965,6 +2028,14 @@ export default function Home() {
     obs.observe(el);
     return () => obs.disconnect();
   }, []);
+  const [testimonialIndex, setTestimonialIndex] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setTestimonialIndex((current) => (current + 1) % testimonials.length);
+    }, 12000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const activeTestimonial = testimonials[testimonialIndex];
 
   return (
     <main id="top" className="overflow-x-clip">
@@ -2012,10 +2083,10 @@ export default function Home() {
         <nav className="desktop-nav relative z-10 hidden md:flex flex-wrap items-center justify-between gap-4 px-6 py-6 md:px-12">
           <a href="#top" className="label-mono font-bold text-lime">TREY SIMMONS</a>
           <div className="flex flex-wrap items-center gap-6">
-            <a href="#work"    className="label-mono hover:text-lime transition-colors">Recent Builds</a>
-            <a href="#brand"   className="label-mono hover:text-lime transition-colors">Branding</a>
+            <a href="#work"    className="label-mono hover:text-lime transition-colors">Build</a>
+            <a href="#brand"   className="label-mono hover:text-lime transition-colors">Brand</a>
             <a href="#resume"  className="label-mono hover:text-lime transition-colors">Resume</a>
-            <a href="#contact" className="nav-cta label-mono">Let's Build</a>
+            <a href="#contact" className="nav-cta label-mono">Let's Vibe</a>
           </div>
         </nav>
 
@@ -2031,15 +2102,15 @@ export default function Home() {
                 SENIOR CREATIVE DIRECTOR · VIBE CODER&nbsp;
               </span>
 
-              <h1 className="display-xl mt-6 text-[clamp(3.2rem,7.5vw,7rem)]">
+              <h1 className="display-xl mt-6 text-[clamp(3.2rem,7.5vw,7rem)]" aria-label="Design it. Code it. Ship it.">
                 <span className="rise hero-ideas block text-paper" style={{ animationDelay: '120ms' }}>
-                  Design it.
+                  Design it<span className="hero-period" aria-hidden="true" />
                 </span>
                 <span className="rise block text-paper" style={{ animationDelay: '240ms' }}>
-                  Code it.
+                  Code it<span className="hero-period" aria-hidden="true" />
                 </span>
                 <span className="rise block text-paper" style={{ animationDelay: '360ms' }}>
-                  <span className="real-word">Ship it.</span>
+                  <span className="real-word">Ship it<span className="hero-period" aria-hidden="true" /></span>
                 </span>
               </h1>
 
@@ -2059,7 +2130,7 @@ export default function Home() {
             </div>
 
             {/* Portrait circle — desktop only, top-aligned with h1 */}
-            <figure className="hidden md:flex md:flex-col md:items-center md:justify-center shrink-0 md:mt-[12px]">
+            <figure className="hidden md:flex md:flex-col md:items-center md:justify-center shrink-0 md:mt-[32px]">
               <button
                 type="button"
                 onClick={triggerPortraitGame}
@@ -2094,7 +2165,7 @@ export default function Home() {
           {/* Stats row — animated one column at a time */}
           <div
             ref={statsRef}
-            className="mt-16 grid grid-cols-2 gap-6 border-t-2 border-dashed border-border pt-8 md:grid-cols-4"
+            className="mt-16 grid grid-cols-2 gap-6 pt-8 md:grid-cols-4"
           >
             {stats.map((s, i) => (
               <StatCol key={s.label} value={s.value} label={s.label} delay={i * 180} active={statsOn} />
@@ -2104,7 +2175,7 @@ export default function Home() {
       </section>
 
       {/* ── WORK ── */}
-      <section id="work" className="mx-auto max-w-7xl px-6 py-24 md:px-12">
+      <section id="work" className="mx-auto max-w-7xl px-6 pb-24 pt-16 md:px-12">
         <header className="mb-14 flex flex-wrap items-end justify-between gap-6">
           <h2 className="display-xl text-[clamp(3.2rem,8vw,6rem)]">
             Recent
@@ -2173,7 +2244,7 @@ export default function Home() {
       </section>
 
       {/* ── RESUME (The Long Receipt) ── */}
-      <section id="resume" className="border-t-2 border-paper">
+      <section id="resume">
         <div className="mx-auto max-w-7xl px-6 py-24 md:px-12">
 
           {/* Header */}
@@ -2299,25 +2370,92 @@ export default function Home() {
       </section>
 
       {/* ── CONTACT ── */}
-      <section id="contact" className="border-t-2 border-paper">
-        <div className="mx-auto max-w-5xl px-6 py-28 text-center md:px-12">
-          <h2 className="display-xl text-[clamp(2.8rem,10vw,8rem)]">
-            Got an idea
-            <span className="block text-lime">worth vibing on?</span>
-          </h2>
-          <p className="font-sans mx-auto mt-8 max-w-2xl text-lg text-muted-foreground">
-            Interactive campaigns, product prototypes, internal tools, weird one-off
-            experiences — if it should exist by next week, let's build it.
-          </p>
-          <ContactForm />
+      {/* ── TESTIMONIALS ── */}
+      <section className="testimonials-section mx-auto max-w-7xl px-6 md:px-12" aria-label="Good company testimonials">
+        <div className="testimonials-shell">
+          <div className="testimonial-layout">
+            <article className="testimonial-slide" key={activeTestimonial.name} aria-live="polite">
+              <blockquote>
+                <span className="testimonial-quote-text">{activeTestimonial.quote}</span>
+                <footer>
+                  <a href="https://www.linkedin.com/in/treysimmons" target="_blank" rel="noreferrer" className="testimonial-name">
+                    {activeTestimonial.name} ↗
+                  </a>
+                  <span>{activeTestimonial.role}</span>
+                </footer>
+              </blockquote>
+            </article>
+            <div className="testimonial-control-cluster" aria-label="Testimonial controls">
+              <a
+                href="https://www.linkedin.com/in/treysimmons"
+                target="_blank"
+                rel="noreferrer"
+                className="label-mono testimonials-link"
+              >
+                View on LinkedIn ↗
+              </a>
+              <div className="testimonial-control-row">
+                <div className="testimonial-dots" role="tablist" aria-label="Testimonials">
+                  {testimonials.map((testimonial, index) => (
+                    <button
+                      key={testimonial.name}
+                      type="button"
+                      role="tab"
+                      aria-selected={testimonialIndex === index}
+                      aria-label={`Show testimonial from ${testimonial.name}`}
+                      className={testimonialIndex === index ? 'is-active' : ''}
+                      onClick={() => setTestimonialIndex(index)}
+                    />
+                  ))}
+                </div>
+                <div className="testimonial-arrows">
+                  <button
+                    type="button"
+                    className="testimonial-arrow"
+                    onClick={() => setTestimonialIndex((current) => (current - 1 + testimonials.length) % testimonials.length)}
+                    aria-label="Previous testimonial"
+                  >
+                    ←
+                  </button>
+                  <button
+                    type="button"
+                    className="testimonial-arrow"
+                    onClick={() => setTestimonialIndex((current) => (current + 1) % testimonials.length)}
+                    aria-label="Next testimonial"
+                  >
+                    →
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── CONTACT ── */}
+      <section id="contact">
+        <div className="mx-auto max-w-7xl px-6 py-28 md:px-12">
+          <div className="mx-auto max-w-5xl text-center">
+            <h2 className="display-xl text-[clamp(2.8rem,10vw,8rem)]">
+              Got an idea
+              <span className="block text-lime">worth vibing on?</span>
+            </h2>
+            <p className="font-sans mx-auto mt-8 max-w-2xl text-lg text-muted-foreground">
+              Interactive campaigns, product prototypes, internal tools, weird one-off
+              experiences — if it should exist by next week, let's build it.
+            </p>
+            <ContactForm />
+          </div>
         </div>
       </section>
 
       {/* ── FOOTER ── */}
-      <footer className="border-t-2 border-paper px-6 py-8 md:px-12">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
-          <span className="label-mono">TREY SIMMONS — SENIOR CREATIVE DIRECTOR &amp; VIBE CODER</span>
-          <span className="label-mono text-muted-foreground">Designed loud. Built fast.</span>
+      <footer className="px-6 md:px-12">
+        <div className="mx-auto max-w-7xl">
+          <div className="flex flex-wrap items-center justify-between gap-4 py-8">
+            <span className="label-mono">TREY SIMMONS — SENIOR CREATIVE DIRECTOR &amp; VIBE CODER</span>
+            <span className="label-mono text-muted-foreground">Designed loud. Built fast.</span>
+          </div>
         </div>
       </footer>
 

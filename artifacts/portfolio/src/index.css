@@ -116,6 +116,157 @@ div[id="skills"] {
   font-weight: 800;
 }
 
+.testimonials-section {
+  padding-top: 0;
+}
+.testimonials-shell {
+  padding: 4rem 0;
+}
+.testimonial-layout {
+  display: grid;
+  min-height: 16rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: clamp(2rem, 6vw, 6rem);
+  margin: 0 auto;
+  max-width: 66rem;
+}
+.testimonials-link {
+  color: color-mix(in oklab, var(--paper) 68%, transparent);
+  transition: color .18s ease;
+}
+.testimonials-link:hover,
+.testimonials-link:focus-visible,
+.testimonial-name:hover,
+.testimonial-name:focus-visible {
+  color: var(--lime);
+}
+.testimonial-slide {
+  display: flex;
+  flex-direction: column;
+  animation: testimonial-slide-in 1.25s ease-in-out both;
+}
+.testimonial-slide blockquote {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  max-width: 58rem;
+  padding-left: clamp(1.5rem, 3vw, 3.2rem);
+  color: var(--paper);
+  font-family: var(--font-heading);
+  font-size: clamp(1.55rem, 3vw, 2.65rem);
+  font-weight: 700;
+  letter-spacing: -.035em;
+  line-height: 1.05;
+  text-align: left;
+}
+.testimonial-quote-text {
+  display: block;
+}
+.testimonial-slide blockquote::before {
+  position: absolute;
+  top: -.32em;
+  left: -.1rem;
+  color: var(--lime);
+  content: '“';
+  font-family: var(--font-heading);
+  font-size: clamp(3.5rem, 7vw, 6rem);
+  line-height: 1;
+}
+.testimonial-slide footer {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  margin-top: 2rem;
+}
+.testimonial-name {
+  color: var(--lime);
+  font-family: var(--font-mono);
+  font-size: .8rem;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  transition: color .18s ease;
+}
+.testimonial-slide footer span {
+  color: color-mix(in oklab, var(--paper) 58%, transparent);
+  font-family: var(--font-mono);
+  font-size: .65rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.testimonial-control-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1.25rem;
+}
+.testimonial-control-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.testimonial-arrows {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+.testimonial-arrow {
+  display: grid;
+  width: 3rem;
+  height: 3rem;
+  place-items: center;
+  border: 1px solid color-mix(in oklab, var(--paper) 34%, transparent);
+  border-radius: 9999px;
+  color: var(--paper);
+  font-size: 1.2rem;
+  transition: color .18s ease, border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.testimonial-arrow:hover,
+.testimonial-arrow:focus-visible {
+  border-color: var(--lime);
+  background: color-mix(in oklab, var(--lime) 12%, transparent);
+  color: var(--lime);
+  transform: translateY(-2px);
+}
+.testimonial-dots {
+  display: flex;
+  justify-content: center;
+  gap: .55rem;
+}
+.testimonial-dots button {
+  width: .42rem;
+  height: .42rem;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--paper) 34%, transparent);
+  transition: width .2s ease, background .2s ease;
+}
+.testimonial-dots button.is-active {
+  width: 1.35rem;
+  background: var(--lime);
+}
+@media (max-width: 640px) {
+  .testimonial-layout {
+    grid-template-columns: 1fr;
+    min-height: 15rem;
+    gap: 2rem;
+  }
+  .testimonial-control-cluster {
+    align-items: flex-end;
+  }
+  .testimonial-control-row {
+    gap: .75rem;
+  }
+  .testimonials-link {
+    text-align: left;
+  }
+}
+@keyframes testimonial-slide-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .display-xl {
   font-family: var(--font-heading);
   letter-spacing: -.045em;
@@ -417,6 +568,16 @@ div[id="skills"] {
   line-height: inherit;
 }
 
+.hero-period {
+  display: inline-block;
+  width: .13em;
+  height: .13em;
+  margin-left: .1em;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translateY(-.04em);
+}
+
 .hero-ideas {
   margin-left: 0;
 }
@@ -632,7 +793,6 @@ div[id="skills"] {
   justify-content: space-between;
   gap: .75rem;
   padding-bottom: .65rem;
-  border-bottom: 1px solid color-mix(in oklab, var(--lime) 35%, transparent);
 }
 .arcade-leaderboard-title {
   display: flex;
@@ -720,7 +880,6 @@ div[id="skills"] {
   min-height: 2rem;
   padding: .35rem .45rem;
   border-left: 2px solid color-mix(in oklab, var(--paper) 18%, transparent);
-  border-bottom: 1px solid color-mix(in oklab, var(--paper) 12%, transparent);
   color: color-mix(in oklab, var(--paper) 78%, transparent);
   font-family: var(--font-mono);
   font-size: .68rem;
@@ -772,13 +931,11 @@ div[id="skills"] {
   position: relative;
   height: 13rem;
   overflow: hidden;
-  border-bottom: 2px solid color-mix(in oklab, var(--paper) 42%, transparent);
 }
 .portrait-coin-large {
   display: grid;
   place-items: center;
   height: 13rem;
-  border-bottom: 2px solid color-mix(in oklab, var(--paper) 42%, transparent);
   background: var(--ink);
 }
 .portrait-coin-large::before {
